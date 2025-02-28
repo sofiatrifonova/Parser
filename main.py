@@ -1,6 +1,6 @@
 """
-A modular text editor application implementing core editing functionality
-with MVVM architecture.
+Модульное приложение текстового редактора, реализующее основную функциональность редактирования
+с использованием архитектуры MVVM.
 """
 
 import logging
@@ -44,170 +44,170 @@ logger = logging.getLogger(__name__)
 
 
 class IUserPrompts:
-    """Interface for user interaction dialogs and prompts."""
+    """Интерфейс для диалогов взаимодействия с пользователем."""
 
     @abstractmethod
     def ask_save_changes(self) -> Optional[bool]:
-        """Prompt to save changes before critical actions.
+        """Запрос на сохранение изменений перед критическими действиями.
 
-        Returns:
+        Возвращает:
             Optional[bool]:
-                True to save, False to discard, None to cancel.
+                True для сохранения, False для отмены, None для отмены операции.
         """
 
     @abstractmethod
     def show_error(self, title: str, message: str) -> None:
-        """Display error message dialog.
+        """Отображение диалога с сообщением об ошибке.
 
-        Args:
-            title: Dialog window title
-            message: Error message content
+        Аргументы:
+            title: Заголовок окна диалога
+            message: Содержание сообщения об ошибке
         """
 
     @abstractmethod
     def get_save_path(self) -> Optional[str]:
-        """Show save file dialog.
+        """Отображение диалога сохранения файла.
 
-        Returns:
-            Optional[str]: Selected path or None if canceled
+        Возвращает:
+            Optional[str]: Выбранный путь или None, если отменено
         """
 
     @abstractmethod
     def get_open_path(self) -> Optional[str]:
-        """Show open file dialog.
+        """Отображение диалога открытия файла.
 
-        Returns:
-            Optional[str]: Selected path or None if canceled
+        Возвращает:
+            Optional[str]: Выбранный путь или None, если отменено
         """
 
 
 class IDocumentModel(QObject):
-    """Interface for document persistence and state management."""
+    """Интерфейс для управления состоянием и сохранением документа."""
 
     text_changed = Signal(str)
     modification_changed = Signal(bool)
 
     @abstractmethod
     def load(self, path: str) -> bool:
-        """Load document from filesystem.
+        """Загрузка документа из файловой системы.
 
-        Args:
-            path: File path to load from
+        Аргументы:
+            path: Путь к файлу для загрузки
 
-        Returns:
-            bool: True if successful
+        Возвращает:
+            bool: True, если успешно
         """
 
     @abstractmethod
     def save(self, path: Optional[str] = None) -> bool:
-        """Save document to filesystem.
+        """Сохранение документа в файловую систему.
 
-        Args:
-            path: Target path (uses current if None)
+        Аргументы:
+            path: Целевой путь (используется текущий, если None)
 
-        Returns:
-            bool: True if successful
+        Возвращает:
+            bool: True, если успешно
         """
 
     @property
     @abstractmethod
     def text(self) -> str:
-        """Current document content.
+        """Текущее содержимое документа.
 
-        Returns:
-            str: The full text content
+        Возвращает:
+            str: Полное текстовое содержимое
         """
 
     @text.setter
     @abstractmethod
     def text(self, value: str) -> None:
-        """Update document content.
+        """Обновление содержимого документа.
 
-        Args:
-            value: New text content
+        Аргументы:
+            value: Новое текстовое содержимое
         """
 
     @property
     @abstractmethod
     def modified(self) -> bool:
-        """Document modification status.
+        """Статус изменения документа.
 
-        Returns:
-            bool: True if unsaved changes exist
+        Возвращает:
+            bool: True, если есть несохраненные изменения
         """
 
     @property
     @abstractmethod
     def file_path(self) -> Optional[str]:
-        """Current document filesystem path.
+        """Текущий путь к документу в файловой системе.
 
-        Returns:
-            Optional[str]: Path string or None if unsaved
+        Возвращает:
+            Optional[str]: Путь к файлу или None, если не сохранен
         """
 
     @file_path.setter
     @abstractmethod
     def file_path(self, value: Optional[str]) -> None:
-        """Update document path.
+        """Обновление пути к документу.
 
-        Args:
-            value: New file path
+        Аргументы:
+            value: Новый путь к файлу
         """
 
 
 class IHistoryManager(QObject):
-    """Interface for undo/redo history management."""
+    """Интерфейс для управления историей отмены/повтора."""
 
     undo_available = Signal(bool)
     redo_available = Signal(bool)
 
     @abstractmethod
     def push(self, state: Tuple[str, int]) -> None:
-        """Add new document state to history.
+        """Добавление нового состояния документа в историю.
 
-        Args:
-            state: Tuple of text and cursor position
+        Аргументы:
+            state: Кортеж текста и позиции курсора
         """
 
     @abstractmethod
     def undo(self) -> Optional[Tuple[str, int]]:
-        """Revert to previous state.
+        """Возврат к предыдущему состоянию.
 
-        Returns:
-            Optional[Tuple[str, int]]: Previous state if available
+        Возвращает:
+            Optional[Tuple[str, int]]: Предыдущее состояние, если доступно
         """
 
     @abstractmethod
     def redo(self) -> Optional[Tuple[str, int]]:
-        """Reapply next state.
+        """Повтор следующего состояния.
 
-        Returns:
-            Optional[Tuple[str, int]]: Next state if available
+        Возвращает:
+            Optional[Tuple[str, int]]: Следующее состояние, если доступно
         """
 
     @abstractmethod
     def clear(self) -> None:
-        """Reset history tracking."""
+        """Сброс истории."""
 
 
 class DocumentModel(IDocumentModel):
-    """Implements document persistence with Qt signal integration.
+    """Реализация сохранения документа с интеграцией сигналов Qt.
 
-    Manages document content, file operations, and modification state while
-    emitting relevant signals for state changes and errors.
+    Управляет содержимым документа, операциями с файлами и состоянием изменения,
+    а также отправляет соответствующие сигналы для изменений состояния и ошибок.
 
-    Signals:
-        text_changed: Content modification (str)
-        file_path_changed: Path update (str)
-        modification_changed: Dirty state change (bool)
-        error_occurred: Operation failure (str: title, str: message)
+    Сигналы:
+        text_changed: Изменение содержимого (str)
+        file_path_changed: Обновление пути (str)
+        modification_changed: Изменение состояния изменений (bool)
+        error_occurred: Ошибка операции (str: заголовок, str: сообщение)
     """
 
     file_path_changed = Signal(str)
     error_occurred = Signal(str, str)
 
     def __init__(self) -> None:
-        """Initialize fresh document state."""
+        """Инициализация нового состояния документа."""
         super().__init__()
         self._text = ""
         self._file_path: Optional[str] = None
@@ -215,19 +215,19 @@ class DocumentModel(IDocumentModel):
 
     @property
     def text(self) -> str:
-        """Current document content.
+        """Текущее содержимое документа.
 
-        Returns:
-            Complete text content as string
+        Возвращает:
+            Полное текстовое содержимое в виде строки
         """
         return self._text
 
     @text.setter
     def text(self, value: str) -> None:
-        """Update content and mark document as modified.
+        """Обновление содержимого и отметка документа как измененного.
 
-        Args:
-            value: New text content
+        Аргументы:
+            value: Новое текстовое содержимое
         """
         if self._text != value:
             self._text = value
@@ -236,19 +236,19 @@ class DocumentModel(IDocumentModel):
 
     @property
     def file_path(self) -> Optional[str]:
-        """Current document filesystem location.
+        """Текущее расположение документа в файловой системе.
 
-        Returns:
-            Path string or None for unsaved documents
+        Возвращает:
+            Путь к файлу или None для несохраненных документов
         """
         return self._file_path
 
     @file_path.setter
     def file_path(self, value: Optional[str]) -> None:
-        """Update document path with notification.
+        """Обновление пути к документу с уведомлением.
 
-        Args:
-            value: New filesystem path
+        Аргументы:
+            value: Новый путь в файловой системе
         """
         if self._file_path != value:
             self._file_path = value
@@ -256,41 +256,41 @@ class DocumentModel(IDocumentModel):
 
     @property
     def modified(self) -> bool:
-        """Document modification status.
+        """Статус изменения документа.
 
-        Returns:
-            True if unsaved changes exist
+        Возвращает:
+            True, если есть несохраненные изменения
         """
         return self._modified
 
     @modified.setter
     def modified(self, value: bool) -> None:
-        """Update modification state.
+        """Обновление состояния изменений.
 
-        Args:
-            value: New dirty state
+        Аргументы:
+            value: Новое состояние изменений
         """
         if self._modified != value:
             self._modified = value
             self.modification_changed.emit(value)
 
     def save(self, path: Optional[str] = None) -> bool:
-        """Persist document to filesystem.
+        """Сохранение документа в файловую систему.
 
-        Args:
-            path: Target path (uses current path if None)
+        Аргументы:
+            path: Целевой путь (используется текущий путь, если None)
 
-        Returns:
-            True if save successful, False otherwise
+        Возвращает:
+            True, если сохранение успешно, иначе False
 
-        Emits:
-            error_occurred: On save failure
+        Сигналы:
+            error_occurred: При ошибке сохранения
         """
         save_path = path or self._file_path
         if not save_path:
             self.error_occurred.emit(
-                "Save Error",
-                "No file path specified"
+                "Ошибка сохранения",
+                "Не указан путь к файлу"
             )
             return False
 
@@ -300,21 +300,21 @@ class DocumentModel(IDocumentModel):
             self.file_path = save_path
             return True
         except Exception as err:
-            logger.error("Save failed: %s", str(err))
-            self.error_occurred.emit("Save Error", str(err))
+            logger.error("Ошибка сохранения: %s", str(err))
+            self.error_occurred.emit("Ошибка сохранения", str(err))
             return False
 
     def load(self, path: str) -> bool:
-        """Load document content from filesystem.
+        """Загрузка содержимого документа из файловой системы.
 
-        Args:
-            path: Source file path
+        Аргументы:
+            path: Путь к исходному файлу
 
-        Returns:
-            True if load successful, False otherwise
+        Возвращает:
+            True, если загрузка успешна, иначе False
 
-        Emits:
-            error_occurred: On load failure
+        Сигналы:
+            error_occurred: При ошибке загрузки
         """
         try:
             content = Path(path).read_text(encoding="utf-8")
@@ -323,16 +323,16 @@ class DocumentModel(IDocumentModel):
             self.modified = False
             return True
         except Exception as err:
-            logger.error("Load failed: %s", str(err))
-            self.error_occurred.emit("Load Error", str(err))
+            logger.error("Ошибка загрузки: %s", str(err))
+            self.error_occurred.emit("Ошибка загрузки", str(err))
             return False
 
 
 class ThemeManager:
-    """Centralized dark theme management with accessibility-focused colors.
+    """Централизованное управление темной темой с учетом доступности.
 
-    Implements a modern dark theme with WCAG-compliant contrast ratios and
-    consistent styling across all UI components.
+    Реализует современную темную тему с соблюдением контрастности WCAG
+    и единообразным стилем для всех компонентов интерфейса.
     """
 
     _COLOR_SPEC = {
@@ -379,7 +379,7 @@ class ThemeManager:
     ]
 
     _BASE_STYLE = """
-        /* Main window styling */
+        /* Стилизация главного окна */
         QMainWindow {{
             background-color: {background};
             color: {foreground};
@@ -387,7 +387,7 @@ class ThemeManager:
             padding: 6px;
         }}
 
-        /* Primary text editor */
+        /* Основной текстовый редактор */
         QTextEdit#editor {{
             background-color: {base};
             color: {foreground};
@@ -404,7 +404,7 @@ class ThemeManager:
             outline: none;
         }}
 
-        /* Output panel */
+        /* Панель вывода */
         QTextEdit#output {{
             background-color: {alternate_base};
             color: {foreground};
@@ -506,13 +506,13 @@ class ThemeManager:
     }
 
     def apply_theme(self, window: QMainWindow) -> None:
-        """Apply complete theme configuration to application window.
+        """Применение полной конфигурации темы к окну приложения.
 
-        Sets both palette colors and CSS-style stylesheet rules to create
-        a cohesive visual experience across all UI components.
+        Устанавливает как цвета палитры, так и правила стилей CSS для создания
+        единого визуального опыта для всех компонентов интерфейса.
 
-        Args:
-            window: Main application window to style
+        Аргументы:
+            window: Главное окно приложения для стилизации
         """
         palette = QPalette()
 
@@ -537,10 +537,10 @@ class ThemeManager:
         window.setStyleSheet(self._build_stylesheet())
 
     def _build_stylesheet(self) -> str:
-        """Compile complete stylesheet from template components.
+        """Компиляция полной таблицы стилей из шаблонных компонентов.
 
-        Returns:
-            Combined CSS string with all UI styling rules
+        Возвращает:
+            Объединенная строка CSS со всеми правилами стилизации интерфейса
         """
         color_map = {k: v.name() for k, v in self._PALETTE.items()}
 
@@ -556,20 +556,20 @@ class ThemeManager:
 
 
 class EditorViewModel(QObject):
-    """Mediates between UI components and document model using MVVM pattern.
+    """Посредник между компонентами интерфейса и моделью документа с использованием паттерна MVVM.
 
-    Handles:
-    - Document lifecycle operations
-    - Undo/redo history management
-    - Signal propagation between layers
-    - Business logic execution
+    Управляет:
+    - Операциями жизненного цикла документа
+    - Управлением историей отмены/повтора
+    - Передачей сигналов между слоями
+    - Выполнением бизнес-логики
 
-    Signals:
-        text_changed(str): Document content modification
-        cursor_changed(int): Cursor position update
-        document_state_changed(bool): Modification state change
-        request_application_exit: Application termination request
-        parser_result_ready(str): Analysis results from document processing
+    Сигналы:
+        text_changed(str): Изменение содержимого документа
+        cursor_changed(int): Обновление позиции курсора
+        document_state_changed(bool): Изменение состояния изменений
+        request_application_exit: Запрос на завершение приложения
+        parser_result_ready(str): Результаты анализа документа
     """
 
     text_changed = Signal(str)
@@ -584,12 +584,12 @@ class EditorViewModel(QObject):
         history: IHistoryManager,
         prompts: IUserPrompts,
     ) -> None:
-        """Initialize view model with core dependencies.
+        """Инициализация модели представления с основными зависимостями.
 
-        Args:
-            model: Document persistence and state management
-            history: Undo/redo operations handler
-            prompts: User interaction service
+        Аргументы:
+            model: Управление состоянием и сохранением документа
+            history: Обработчик операций отмены/повтора
+            prompts: Сервис взаимодействия с пользователем
         """
         super().__init__()
         self._model = model
@@ -598,34 +598,34 @@ class EditorViewModel(QObject):
         self._connect_model_signals()
 
     def _connect_model_signals(self) -> None:
-        """Establish model-to-viewmodel signal connections."""
+        """Установление соединений сигналов между моделью и моделью представления."""
         self._model.text_changed.connect(self._on_model_text_changed)
         self._model.modification_changed.connect(
             self.document_state_changed.emit
         )
 
     def _on_model_text_changed(self, text: str) -> None:
-        """Handle model text updates and propagate changes.
+        """Обработка обновлений текста модели и передача изменений.
 
-        Args:
-            text: New document content
+        Аргументы:
+            text: Новое содержимое документа
         """
         self.text_changed.emit(text)
         self.cursor_changed.emit(len(text))
 
     def handle_view_changes(self, text: str, cursor_pos: int) -> None:
-        """Process UI changes and update application state.
+        """Обработка изменений интерфейса и обновление состояния приложения.
 
-        Args:
-            text: Current editor content
-            cursor_pos: Current caret position
+        Аргументы:
+            text: Текущее содержимое редактора
+            cursor_pos: Текущая позиция курсора
         """
         self._model.text = text
         self._history.push((text, cursor_pos))
 
     @Slot()
     def create_new_document(self) -> None:
-        """Handle new document creation workflow."""
+        """Обработка создания нового документа."""
         if not self._handle_unsaved_changes():
             return
 
@@ -636,7 +636,7 @@ class EditorViewModel(QObject):
 
     @Slot()
     def open_document(self) -> None:
-        """Handle document opening workflow."""
+        """Обработка открытия документа."""
         if not self._handle_unsaved_changes():
             return
 
@@ -647,43 +647,43 @@ class EditorViewModel(QObject):
 
     @Slot()
     def save_document(self) -> None:
-        """Handle document save operation."""
+        """Обработка сохранения документа."""
         if not self._model.save():
-            self._prompts.show_error("Save Error", "Document save failed")
+            self._prompts.show_error("Ошибка сохранения", "Не удалось сохранить документ")
 
     @Slot()
     def save_document_as(self) -> None:
-        """Handle save-as operation with new path."""
+        """Обработка сохранения документа с новым путем."""
         if path := self._prompts.get_save_path():
             if not self._model.save(path):
-                self._prompts.show_error("Save Error", "Save operation failed")
+                self._prompts.show_error("Ошибка сохранения", "Не удалось выполнить сохранение")
 
     @Slot()
     def exit_application(self) -> None:
-        """Handle application termination workflow."""
+        """Обработка завершения приложения."""
         if not self._handle_unsaved_changes():
             return
         self.request_application_exit.emit()
 
     @Slot()
     def perform_undo(self) -> None:
-        """Revert to previous document state."""
+        """Возврат к предыдущему состоянию документа."""
         if state := self._history.undo():
-            logger.debug("Undoing document state")
+            logger.debug("Отмена состояния документа")
             self._apply_historical_state(state)
 
     @Slot()
     def perform_redo(self) -> None:
-        """Reapply next document state."""
+        """Повтор следующего состояния документа."""
         if state := self._history.redo():
-            logger.debug("Redoing document state")
+            logger.debug("Повтор состояния документа")
             self._apply_historical_state(state)
 
     def _apply_historical_state(self, state: Tuple[str, int]) -> None:
-        """Synchronize model with historical document state.
+        """Синхронизация модели с историческим состоянием документа.
 
-        Args:
-            state: Tuple containing text content and cursor position
+        Аргументы:
+            state: Кортеж, содержащий текстовое содержимое и позицию курсора
         """
         text, position = state
         with QSignalBlocker(self._model):
@@ -693,20 +693,20 @@ class EditorViewModel(QObject):
 
     @Slot()
     def run_parser(self) -> None:
-        """Execute document analysis and emit results."""
+        """Выполнение анализа документа и передача результатов."""
         if not self._model.text:
-            logger.warning("Parser executed on empty document")
+            logger.warning("Парсер выполнен на пустом документе")
             self.parser_result_ready.emit("")
             return
 
-        result = f"Document analysis:\n{self._model.text[:50]}..."
+        result = f"Анализ документа:\n{self._model.text[:50]}..."
         self.parser_result_ready.emit(result)
 
     def _handle_unsaved_changes(self) -> bool:
-        """Manage unsaved changes workflow.
+        """Управление процессом несохраненных изменений.
 
-        Returns:
-            True if operation should proceed, False to cancel
+        Возвращает:
+            True, если операция должна продолжиться, False для отмены
         """
         if not self._model.modified:
             return True
@@ -720,33 +720,33 @@ class EditorViewModel(QObject):
 
 
 class CustomTextEdit(QTextEdit):
-    """Enhanced text editor with zoom controls and deletion capabilities.
+    """Улучшенный текстовый редактор с управлением масштабированием и возможностью удаления.
 
-    Features:
-    - Adjustable font size with bounds checking
-    - Selective text formatting preservation
-    - Intelligent text deletion handling
+    Особенности:
+    - Регулируемый размер шрифта с проверкой границ
+    - Сохранение выборочного форматирования текста
+    - Интеллектуальное удаление текста
     """
 
     _MIN_FONT_SIZE = 8
     _DEFAULT_FONT_SIZE = 12
 
     def __init__(self, *args, **kwargs) -> None:
-        """Initialize editor with default typography settings."""
+        """Инициализация редактора с настройками типографики по умолчанию."""
         super().__init__(*args, **kwargs)
         self._init_base_style()
 
     def _init_base_style(self) -> None:
-        """Configure default editor appearance."""
+        """Настройка внешнего вида редактора по умолчанию."""
         font = self.font()
         font.setPointSize(self._DEFAULT_FONT_SIZE)
         self.setFont(font)
 
     def _apply_font_change(self, size: int) -> None:
-        """Modify font size for selection or entire document.
+        """Изменение размера шрифта для выделения или всего документа.
 
-        Args:
-            size: New font size in points
+        Аргументы:
+            size: Новый размер шрифта в пунктах
         """
         cursor = self.textCursor()
 
@@ -760,21 +760,21 @@ class CustomTextEdit(QTextEdit):
             self.setFont(font)
 
     def zoom_in(self) -> None:
-        """Increase font size by 1 point."""
+        """Увеличение размера шрифта на 1 пункт."""
         self._apply_font_change(self.font().pointSize() + 1)
 
     def zoom_out(self) -> None:
-        """Reduce font size with lower bound protection."""
+        """Уменьшение размера шрифта с защитой от нижней границы."""
         current_size = self.font().pointSize()
         new_size = max(self._MIN_FONT_SIZE, current_size - 1)
         self._apply_font_change(new_size)
 
     def reset_zoom(self) -> None:
-        """Restore default font size."""
+        """Восстановление размера шрифта по умолчанию."""
         self._apply_font_change(self._DEFAULT_FONT_SIZE)
 
     def delete_selected(self) -> None:
-        """Remove selected text or adjacent character."""
+        """Удаление выделенного текста или соседнего символа."""
         cursor = self.textCursor()
 
         if cursor.hasSelection():
@@ -784,21 +784,21 @@ class CustomTextEdit(QTextEdit):
 
 
 class ComponentFactory:
-    """Centralized UI component factory with style consistency enforcement.
+    """Централизованная фабрика компонентов интерфейса с обеспечением единообразия стилей.
 
-    Implements factory pattern for creating standardized application widgets
-    with predefined styling and behavior configurations.
+    Реализует фабричный шаблон для создания стандартизированных виджетов приложения
+    с предопределенными настройками стилей и поведения.
     """
 
     @staticmethod
     def create_editor() -> CustomTextEdit:
-        """Create primary code editing component.
+        """Создание основного компонента редактирования кода.
 
-        Returns:
-            CustomTextEdit configured with:
-            - Syntax highlighting
-            - Line wrapping
-            - Default editor ID
+        Возвращает:
+            CustomTextEdit, настроенный с:
+            - Подсветкой синтаксиса
+            - Переносом строк
+            - Идентификатором редактора по умолчанию
         """
         editor = CustomTextEdit()
         editor.setObjectName("editor")
@@ -808,13 +808,13 @@ class ComponentFactory:
 
     @staticmethod
     def create_output_panel() -> QTextEdit:
-        """Create diagnostic output console.
+        """Создание консоли диагностического вывода.
 
-        Returns:
-            QTextEdit configured as:
-            - Read-only
-            - Frameless
-            - Output panel ID
+        Возвращает:
+            QTextEdit, настроенный как:
+            - Только для чтения
+            - Без рамки
+            - Идентификатор панели вывода
         """
         output = QTextEdit()
         output.setObjectName("output")
@@ -827,17 +827,17 @@ class ComponentFactory:
         orientation: Qt.Orientation,
         *widgets: QWidget
     ) -> QSplitter:
-        """Create resizable container for editor/output panels.
+        """Создание контейнера с возможностью изменения размера для панелей редактора/вывода.
 
-        Args:
-            orientation: Horizontal or vertical layout
-            widgets: Child widgets to add
+        Аргументы:
+            orientation: Горизонтальная или вертикальная компоновка
+            widgets: Дочерние виджеты для добавления
 
-        Returns:
-            QSplitter configured with:
-            - Visible handle
-            - Non-collapsible panes
-            - Transparent handle styling
+        Возвращает:
+            QSplitter, настроенный с:
+            - Видимым разделителем
+            - Нескладывающимися панелями
+            - Прозрачным стилем разделителя
         """
         splitter = QSplitter(orientation)
         splitter.setHandleWidth(12)
@@ -852,26 +852,26 @@ class ComponentFactory:
 
 
 class HistoryManager(IHistoryManager):
-    """Manages document state history for undo/redo operations.
+    """Управление историей состояний документа для операций отмены/повтора.
 
-    Implements:
-    - Stack-based history navigation
-    - Change detection to avoid duplicate states
-    - Observer pattern via Qt signals
+    Реализует:
+    - Навигацию по истории на основе стека
+    - Обнаружение изменений для избежания дублирования состояний
+    - Шаблон наблюдателя через сигналы Qt
     """
 
     def __init__(self) -> None:
-        """Initialize with empty history stacks."""
+        """Инициализация с пустыми стеками истории."""
         super().__init__()
         self._undo_stack: list[tuple[str, int]] = []
         self._redo_stack: list[tuple[str, int]] = []
         self._current_state: tuple[str, int] | None = None
 
     def push(self, state: tuple[str, int]) -> None:
-        """Add new state to history and reset redo capacity.
+        """Добавление нового состояния в историю и сброс возможности повтора.
 
-        Args:
-            state: Text content with cursor position
+        Аргументы:
+            state: Текстовое содержимое с позицией курсора
         """
         if state == self._current_state:
             return
@@ -882,10 +882,10 @@ class HistoryManager(IHistoryManager):
         self._update_availability_signals()
 
     def undo(self) -> tuple[str, int] | None:
-        """Revert to previous document state.
+        """Возврат к предыдущему состоянию документа.
 
-        Returns:
-            Previous state tuple if available
+        Возвращает:
+            Кортеж предыдущего состояния, если доступен
         """
         if not self._undo_stack:
             return None
@@ -898,10 +898,10 @@ class HistoryManager(IHistoryManager):
         return self._current_state
 
     def redo(self) -> tuple[str, int] | None:
-        """Reapply next document state.
+        """Повтор следующего состояния документа.
 
-        Returns:
-            Next state tuple if available
+        Возвращает:
+            Кортеж следующего состояния, если доступен
         """
         if not self._redo_stack:
             return None
@@ -914,32 +914,32 @@ class HistoryManager(IHistoryManager):
         return self._current_state
 
     def clear(self) -> None:
-        """Reset all history tracking."""
+        """Сброс всей истории."""
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._current_state = None
         self._update_availability_signals()
 
     def _update_availability_signals(self) -> None:
-        """Notify observers about undo/redo capability changes."""
+        """Уведомление наблюдателей об изменениях возможности отмены/повтора."""
         self.undo_available.emit(bool(self._undo_stack))
         self.redo_available.emit(bool(self._redo_stack))
 
 
 class ActionManager:
-    """Abstract factory for creating standardized QAction configurations.
+    """Абстрактная фабрика для создания стандартизированных конфигураций QAction.
 
-    Provides base functionality for:
-    - Action creation with consistent styling
-    - Icon and shortcut management
-    - Callback binding
+    Предоставляет базовую функциональность для:
+    - Создания действий с единообразным стилем
+    - Управления иконками и сочетаниями клавиш
+    - Привязки обратных вызовов
     """
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
-        """Initialize action factory.
+        """Инициализация фабрики действий.
 
-        Args:
-            parent: Parent widget for action ownership
+        Аргументы:
+            parent: Родительский виджет для владения действиями
         """
         self.parent = parent
         self.actions: dict[str, QAction] = {}
@@ -951,16 +951,16 @@ class ActionManager:
         shortcut: Optional[QKeySequence.StandardKey],
         callback: Callable[[], None],
     ) -> QAction:
-        """Create preconfigured QAction instance.
+        """Создание предварительно настроенного экземпляра QAction.
 
-        Args:
-            icon_name: Theme icon identifier
-            text: Display text
-            shortcut: Keyboard shortcut
-            callback: Action trigger handler (no arguments, returns None)
+        Аргументы:
+            icon_name: Идентификатор иконки темы
+            text: Отображаемый текст
+            shortcut: Сочетание клавиш
+            callback: Обработчик триггера действия (без аргументов, возвращает None)
 
-        Returns:
-            Configured QAction instance
+        Возвращает:
+            Настроенный экземпляр QAction
         """
         action = QAction(text, self.parent)
 
@@ -975,73 +975,73 @@ class ActionManager:
 
 
 class DocumentActionManager(ActionManager):
-    """Manages document-related actions with view model integration."""
+    """Управление действиями, связанными с документами, с интеграцией модели представления."""
 
     _ACTION_SPECS = {
         "new": (
             "document-new",
-            "New",
+            "Новый",
             QKeySequence.StandardKey.New,
             "create_new_document"
         ),
         "open": (
             "document-open",
-            "Open",
+            "Открыть",
             QKeySequence.StandardKey.Open,
             "open_document"
         ),
         "save": (
             "document-save",
-            "Save",
+            "Сохранить",
             QKeySequence.StandardKey.Save,
             "save_document"
         ),
         "save_as": (
             "document-save-as",
-            "Save As",
+            "Сохранить как",
             QKeySequence.StandardKey.SaveAs,
             "save_document_as"
         ),
         "exit": (
             "application-exit",
-            "Exit",
+            "Выход",
             QKeySequence.StandardKey.Quit,
             "exit_application"
         ),
         "undo": (
             "edit-undo",
-            "Undo",
+            "Отменить",
             QKeySequence.StandardKey.Undo,
             "perform_undo"
         ),
         "redo": (
             "edit-redo",
-            "Redo",
+            "Повторить",
             QKeySequence.StandardKey.Redo,
             "perform_redo"
         ),
         "run_parser": (
             "system-run",
-            "Run Parser",
+            "Запустить парсер",
             None,
             "run_parser"
         )
     }
 
     def __init__(self, view_model: EditorViewModel) -> None:
-        """Initialize with document view model reference.
+        """Инициализация с ссылкой на модель представления документа.
 
-        Args:
-            view_model: Editor business logic handler
+        Аргументы:
+            view_model: Обработчик бизнес-логики редактора
         """
         super().__init__()
         self.view_model = view_model
 
     def create_actions(self) -> dict[str, QAction]:
-        """Generate document management action set.
+        """Генерация набора действий для управления документами.
 
-        Returns:
-            Mapping of action names to configured QActions
+        Возвращает:
+            Отображение имен действий на настроенные QActions
         """
         return {
             key: self._create_action(
@@ -1055,79 +1055,79 @@ class DocumentActionManager(ActionManager):
 
 
 class EditorActionManager(ActionManager):
-    """Manages text editing actions with direct editor integration.
+    """Управление действиями редактирования текста с прямой интеграцией в редактор.
 
-    Handles creation and configuration of:
-    - Basic text manipulation commands
-    - Viewport controls
-    - Selection operations
+    Управляет созданием и настройкой:
+    - Базовых команд манипуляции текстом
+    - Элементов управления областью просмотра
+    - Операций выделения
     """
 
     _ACTION_SPECS = {
         "cut": (
             "edit-cut",
-            "Cut",
+            "Вырезать",
             QKeySequence.StandardKey.Cut,
             "cut"
         ),
         "copy": (
             "edit-copy",
-            "Copy",
+            "Копировать",
             QKeySequence.StandardKey.Copy,
             "copy"
         ),
         "paste": (
             "edit-paste",
-            "Paste",
+            "Вставить",
             QKeySequence.StandardKey.Paste,
             "paste"
         ),
         "select_all": (
             "edit-select-all",
-            "Select All",
+            "Выделить все",
             QKeySequence.StandardKey.SelectAll,
             "selectAll"
         ),
         "zoom_in": (
             "zoom-in",
-            "Zoom In",
+            "Увеличить",
             QKeySequence.StandardKey.ZoomIn,
             "zoom_in"
         ),
         "zoom_out": (
             "zoom-out",
-            "Zoom Out",
+            "Уменьшить",
             QKeySequence.StandardKey.ZoomOut,
             "zoom_out"
         ),
         "reset_zoom": (
             "zoom-original",
-            "Reset Zoom",
+            "Сбросить масштаб",
             QKeySequence("Ctrl+0"),
             "reset_zoom"
         ),
         "remove": (
             "edit-delete",
-            "Remove",
+            "Удалить",
             QKeySequence(Qt.Key.Key_Delete),
             "delete_selected"
         )
     }
 
     def __init__(self, editor: CustomTextEdit) -> None:
-        """Initialize with text editor reference.
+        """Инициализация с ссылкой на текстовый редактор.
 
-        Args:
-            editor: Text editing component to control
+        Аргументы:
+            editor: Компонент редактирования текста для управления
         """
         super().__init__()
         self.editor = editor
 
     def create_actions(self) -> dict[str, QAction]:
-        """Generate editor action set with direct method binding.
+        """Генерация набора действий редактора с прямой привязкой методов.
 
-        Returns:
-            Mapping of action names to configured QActions
+        Возвращает:
+            Отображение имен действий на настроенные QActions
         """
         return {
             key: self._create_action(
@@ -1141,18 +1141,18 @@ class EditorActionManager(ActionManager):
 
 
 class HelpActionManager(ActionManager):
-    """Manages application help system actions with callback binding."""
+    """Управление действиями системы помощи с привязкой обратных вызовов."""
 
     _ACTION_SPECS = {
         "help": (
             "help-contents",
-            "Help",
+            "Помощь",
             QKeySequence.StandardKey.HelpContents,
             "help_callback"
         ),
         "about": (
             "help-about",
-            "About",
+            "О программе",
             None,
             "about_callback"
         )
@@ -1163,21 +1163,21 @@ class HelpActionManager(ActionManager):
         help_callback: Callable[[], None],
         about_callback: Callable[[], None]
     ) -> None:
-        """Initialize with dialog callbacks.
+        """Инициализация с обратными вызовами для диалогов.
 
-        Args:
-            help_callback: Help documentation display handler
-            about_callback: Application info dialog handler
+        Аргументы:
+            help_callback: Обработчик отображения документации помощи
+            about_callback: Обработчик диалога информации о приложении
         """
         super().__init__()
         self.help_callback = help_callback
         self.about_callback = about_callback
 
     def create_actions(self) -> dict[str, QAction]:
-        """Generate help system action set.
+        """Генерация набора действий системы помощи.
 
-        Returns:
-            Mapping of action names to configured QActions
+        Возвращает:
+            Отображение имен действий на настроенные QActions
         """
         return {
             key: self._create_action(
@@ -1191,29 +1191,29 @@ class HelpActionManager(ActionManager):
 
 
 class MenuManager:
-    """Manages application menu structure and organization.
+    """Управление структурой и организацией меню приложения.
 
-    Handles:
-    - Menu hierarchy configuration
-    - Action integration
-    - Separator placement
+    Управляет:
+    - Конфигурацией иерархии меню
+    - Интеграцией действий
+    - Размещением разделителей
     """
 
     _MENU_STRUCTURE = {
-        "&File": ["new", "open", "save", "save_as", None, "exit"],
-        "&Edit": [
+        "&Файл": ["new", "open", "save", "save_as", None, "exit"],
+        "&Правка": [
             "undo", "redo", None,
             "cut", "copy", "paste", "remove", None,
             "zoom_in", "zoom_out", "reset_zoom", None,
             "select_all"
         ],
-        "&Text": [
+        "&Текст": [
             "problem_statement", "grammar", "grammar_classification",
             "method_of_analysis", "error_diagnosis", "test_case",
             "literature_list", "source_code"
         ],
-        "&Launch": ["run_parser"],
-        "&Help": ["help", "about"]
+        "&Запуск": ["run_parser"],
+        "&Справка": ["help", "about"]
     }
 
     def __init__(
@@ -1221,20 +1221,20 @@ class MenuManager:
             menu_bar: QMenuBar,
             actions: Dict[str, QAction]
     ) -> None:
-        """Initialize with menu bar and action references.
+        """Инициализация с ссылками на строку меню и действия.
 
-        Args:
-            menu_bar: Application menu bar container
-            actions: Mapping of action names to QAction instances
+        Аргументы:
+            menu_bar: Контейнер строки меню приложения
+            actions: Отображение имен действий на экземпляры QAction
         """
         self.menu_bar = menu_bar
         self.actions = actions
 
     def build_menus(self) -> None:
-        """Construct menu hierarchy from configuration.
+        """Построение иерархии меню из конфигурации.
 
-        Creates menus and submenus according to predefined structure,
-        integrating actions and separators as specified.
+        Создает меню и подменю в соответствии с предопределенной структурой,
+        интегрируя действия и разделители, как указано.
         """
         for menu_label, action_keys in self._MENU_STRUCTURE.items():
             menu = self.menu_bar.addMenu(menu_label)
@@ -1245,11 +1245,11 @@ class MenuManager:
             menu: QMenu,
             action_keys: list[str | None]
     ) -> None:
-        """Add items to specified menu.
+        """Добавление элементов в указанное меню.
 
-        Args:
-            menu: Target menu widget
-            action_keys: Sequence of action identifiers and separators
+        Аргументы:
+            menu: Целевой виджет меню
+            action_keys: Последовательность идентификаторов действий и разделителей
         """
         for key in action_keys:
             if key is None:
@@ -1258,48 +1258,48 @@ class MenuManager:
                 self._add_menu_action(menu, key)
 
     def _add_menu_action(self, menu: QMenu, action_key: str) -> None:
-        """Add action to menu with validation.
+        """Добавление действия в меню с проверкой.
 
-        Args:
-            menu: Target menu widget
-            action_key: Identifier for action lookup
+        Аргументы:
+            menu: Целевой виджет меню
+            action_key: Идентификатор для поиска действия
 
-        Raises:
-            KeyError: If action_key not found in actions mapping
+        Вызывает:
+            KeyError: Если action_key не найден в отображении действий
         """
         if action_key not in self.actions:
-            raise KeyError(f"Action '{action_key}' not found")
+            raise KeyError(f"Действие '{action_key}' не найдено")
 
         menu.addAction(self.actions[action_key])
 
 
 class MainWindow(QMainWindow, IUserPrompts):
-    """Central application window implementing MVVM architecture.
+    """Центральное окно приложения, реализующее архитектуру MVVM.
 
-    Responsibilities:
-    - UI component management
-    - Theme application
-    - Signal routing
-    - User dialog handling
+    Обязанности:
+    - Управление компонентами интерфейса
+    - Применение темы
+    - Маршрутизация сигналов
+    - Обработка диалогов пользователя
     """
 
     _DEFAULT_WINDOW_SIZE = (800, 600)
-    _STATUS_READY = "Ready"
-    _WINDOW_TITLE_BASE = "Text Editor"
+    _STATUS_READY = "Готов"
+    _WINDOW_TITLE_BASE = "Текстовый редактор"
 
     _CUSTOM_ACTIONS = {
-        "problem_statement": "Problem Statement",
-        "grammar": "Grammar",
-        "grammar_classification": "Grammar Classification",
-        "method_of_analysis": "The Method of Analysis",
-        "error_diagnosis": "Error Diagnosis and Neutralization",
-        "test_case": "A Test Case",
-        "literature_list": "The List of Literature",
-        "source_code": "The Source Code of the Program"
+        "problem_statement": "Постановка задачи",
+        "grammar": "Грамматика",
+        "grammar_classification": "Классификация грамматики",
+        "method_of_analysis": "Метод анализа",
+        "error_diagnosis": "Диагностика и нейтрализация ошибок",
+        "test_case": "Тестовый пример",
+        "literature_list": "Список литературы",
+        "source_code": "Исходный код программы"
     }
 
     def __init__(self) -> None:
-        """Initialize main window with default configuration."""
+        """Инициализация главного окна с настройками по умолчанию."""
         super().__init__()
         self._view_model: Optional[EditorViewModel] = None
         self._theme_manager = ThemeManager()
@@ -1309,16 +1309,16 @@ class MainWindow(QMainWindow, IUserPrompts):
         self._init_window_settings()
 
     def _init_window_settings(self) -> None:
-        """Configure initial window properties."""
+        """Настройка начальных свойств окна."""
         self.setWindowTitle(self._WINDOW_TITLE_BASE)
         self.setMinimumSize(*self._DEFAULT_WINDOW_SIZE)
         self.statusBar().showMessage(self._STATUS_READY)
 
     def set_view_model(self, view_model: EditorViewModel) -> None:
-        """Connect view model and initialize UI components.
+        """Подключение модели представления и инициализация компонентов интерфейса.
 
-        Args:
-            view_model: Business logic handler
+        Аргументы:
+            view_model: Обработчик бизнес-логики
         """
         self._view_model = view_model
         if not self._components_initialized:
@@ -1327,14 +1327,14 @@ class MainWindow(QMainWindow, IUserPrompts):
         self._establish_signal_connections()
 
     def _initialize_ui_components(self) -> None:
-        """Create and arrange UI elements."""
+        """Создание и организация элементов интерфейса."""
         self._create_core_components()
         self._setup_main_layout()
         self._theme_manager.apply_theme(self)
         self._build_interface()
 
     def _create_core_components(self) -> None:
-        """Instantiate primary UI widgets."""
+        """Создание основных виджетов интерфейса."""
         self.editor = ComponentFactory.create_editor()
         self.output = ComponentFactory.create_output_panel()
         self.splitter = ComponentFactory.create_splitter(
@@ -1344,17 +1344,17 @@ class MainWindow(QMainWindow, IUserPrompts):
         )
 
     def _setup_main_layout(self) -> None:
-        """Configure window layout hierarchy."""
+        """Настройка иерархии макета окна."""
         self.setCentralWidget(self.splitter)
 
     def _build_interface(self) -> None:
-        """Construct complete user interface."""
+        """Построение полного пользовательского интерфейса."""
         self._create_action_set()
         self._construct_menu_system()
         self._build_main_toolbar()
 
     def _create_action_set(self) -> None:
-        """Initialize all application actions."""
+        """Инициализация всех действий приложения."""
         if self._view_model:
             self._actions.update(
                 DocumentActionManager(self._view_model).create_actions()
@@ -1369,17 +1369,17 @@ class MainWindow(QMainWindow, IUserPrompts):
         self._add_custom_actions()
 
     def _add_custom_actions(self) -> None:
-        """Register application-specific actions."""
+        """Регистрация специфических для приложения действий."""
         for key, text in self._CUSTOM_ACTIONS.items():
             self._actions[key] = QAction(text, self)
 
     def _construct_menu_system(self) -> None:
-        """Build application menu hierarchy."""
+        """Построение иерархии меню приложения."""
         MenuManager(self.menuBar(), self._actions).build_menus()
 
     def _build_main_toolbar(self) -> None:
-        """Configure primary toolbar with common actions."""
-        toolbar = QToolBar("Main Toolbar", self)
+        """Настройка основной панели инструментов с общими действиями."""
+        toolbar = QToolBar("Основная панель инструментов", self)
         toolbar.setIconSize(QSize(24, 24))
 
         essential_actions = [
@@ -1393,7 +1393,7 @@ class MainWindow(QMainWindow, IUserPrompts):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _establish_signal_connections(self) -> None:
-        """Connect view model signals to UI handlers."""
+        """Подключение сигналов модели представления к обработчикам интерфейса."""
         if not self._view_model:
             return
 
@@ -1410,44 +1410,44 @@ class MainWindow(QMainWindow, IUserPrompts):
             signal.connect(handler)
 
     def _update_editor_content(self, text: str) -> None:
-        """Synchronize editor content with model.
+        """Синхронизация содержимого редактора с моделью.
 
-        Args:
-            text: Current document content
+        Аргументы:
+            text: Текущее содержимое документа
         """
         if self.editor.toPlainText() != text:
             self.editor.setPlainText(text)
 
     def _update_output_panel(self, result: str) -> None:
-        """Display parser results in output panel.
+        """Отображение результатов парсера в панели вывода.
 
-        Args:
-            result: Analysis results
+        Аргументы:
+            result: Результаты анализа
         """
         self.output.setPlainText(result)
 
     def _update_cursor(self, position: int) -> None:
-        """Update editor cursor position.
+        """Обновление позиции курсора редактора.
 
-        Args:
-            position: New caret position
+        Аргументы:
+            position: Новая позиция курсора
         """
         cursor = self.editor.textCursor()
         cursor.setPosition(position)
         self.editor.setTextCursor(cursor)
 
     def _handle_editor_changes(self) -> None:
-        """Propagate editor changes to view model."""
+        """Передача изменений редактора в модель представления."""
         if self._view_model:
             content = self.editor.toPlainText()
             position = self.editor.textCursor().position()
             self._view_model.handle_view_changes(content, position)
 
     def _update_title(self, modified: bool) -> None:
-        """Update window title with modification state.
+        """Обновление заголовка окна с учетом состояния изменений.
 
-        Args:
-            modified: Document has unsaved changes
+        Аргументы:
+            modified: Документ имеет несохраненные изменения
         """
         self.setWindowTitle(
             f"{self._WINDOW_TITLE_BASE}{'*' if modified else ''}"
@@ -1455,17 +1455,17 @@ class MainWindow(QMainWindow, IUserPrompts):
 
     # IUserPrompts implementation
     def ask_save_changes(self) -> Optional[bool]:
-        """Prompt to save unsaved changes.
+        """Запрос на сохранение несохраненных изменений.
 
-        Returns:
-            True: Save changes
-            False: Discard changes
-            None: Cancel operation
+        Возвращает:
+            True: Сохранить изменения
+            False: Отменить изменения
+            None: Отменить операцию
         """
         response = QMessageBox.question(
             self,
-            "Unsaved Changes",
-            "Save changes before closing?",
+            "Несохраненные изменения",
+            "Сохранить изменения перед закрытием?",
             QMessageBox.StandardButton.Yes |
             QMessageBox.StandardButton.No |
             QMessageBox.StandardButton.Cancel
@@ -1477,90 +1477,95 @@ class MainWindow(QMainWindow, IUserPrompts):
         }.get(response, None)
 
     def get_save_path(self) -> Optional[str]:
-        """Show save file dialog.
+        """Отображение диалога сохранения файла.
 
-        Returns:
-            Selected path or None
+        Возвращает:
+            Выбранный путь или None
         """
-        return self._get_file_path(QFileDialog.getSaveFileName, "Save File")
+        return self._get_file_path(QFileDialog.getSaveFileName, "Сохранить файл")
 
     def get_open_path(self) -> Optional[str]:
-        """Show open file dialog.
+        """Отображение диалога открытия файла.
 
-        Returns:
-            Selected path or None
+        Возвращает:
+            Выбранный путь или None
         """
-        return self._get_file_path(QFileDialog.getOpenFileName, "Open File")
+        return self._get_file_path(QFileDialog.getOpenFileName, "Открыть файл")
 
     def _get_file_path(self, dialog_method, title: str) -> Optional[str]:
-        """Generic file path acquisition helper.
+        """Универсальный помощник для получения пути к файлу.
 
-        Args:
-            dialog_method: File dialog constructor
-            title: Dialog window title
+        Аргументы:
+            dialog_method: Конструктор диалога файла
+            title: Заголовок окна диалога
 
-        Returns:
-            Selected path or None
+        Возвращает:
+            Выбранный путь или None
         """
         path, _ = dialog_method(
             self,
             title,
             "",
-            "Text Files (*.txt);;All Files (*)"
+            "Текстовые файлы (*.txt);;Все файлы (*)"
         )
         return path if path else None
 
     def show_error(self, title: str, message: str) -> None:
-        """Display error dialog.
+        """Отображение диалога ошибки.
 
-        Args:
-            title: Dialog title
-            message: Error details
+        Аргументы:
+            title: Заголовок диалога
+            message: Детали ошибки
         """
         QMessageBox.critical(self, title, message)
 
     def show_help(self) -> None:
-        """Display help documentation."""
+        """Отображение документации помощи."""
         QMessageBox.information(
             self,
             "Помощь",
-            "User Guide:\n"
-            "1. Create/Open documents\n"
-            "2. Edit text\n"
-            "3. Run parser\n"
-            "4. Save your work",
+            "Руководство пользователя:\n"
+            "1. Создайте/Откройте документы\n"
+            "2. Редактируйте текст\n"
+            "3. Запустите парсер\n"
+            "4. Сохраните вашу работу",
             QMessageBox.StandardButton.Ok
         )
 
     def show_about(self) -> None:
-        """Display application information."""
+        """Отображение информации о приложении."""
         QMessageBox.about(
             self,
-            "About Text Editor",
-            "Text Editor v1.0\n"
-            "(c) 2024 University Lab Project"
+            "О программе",
+            "<b>Название программы:</b> Текстовый редактор для анализа объявления целочисленной константы на языке C/C++<br>"
+            "<b>Автор:</b> Студентка 3 курса группы АВТ-214, Трифонова София<br>"
+            "<b>Преподаватель:</b> Антоньянц Егор Николаевич<br>"
+            "<b>Дисциплина:</b> Теория формальных языков и компиляторов"
         )
 
 
 class SyntaxHighlighter(QSyntaxHighlighter):
-    """Provides Rust syntax highlighting using manual text parsing.
+    """Обеспечивает подсветку синтаксиса Rust с использованием ручного анализа текста.
 
-    Features:
-    - Keyword and type detection
-    - String literal highlighting
-    - Number recognition
-    - Single-line comments
+    Особенности:
+    - Обнаружение ключевых слов и типов
+    - Подсветка строковых литералов
+    - Распознавание чисел
+    - Однострочные комментарии
     """
 
     KEYWORDS = {
-            "break", "const", "continue", "else", "enum", "false",
-            "for", "if", "return", "static", "struct", "while"
-        }
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn",
+        "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
+        "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+        "self", "Self", "static", "struct", "super", "trait", "true", "type",
+        "union", "unsafe", "use", "where", "while",
+    }
 
     TYPES = {
-            "byte", "double", "unsigned", "float", "bool", "char", "int", "string",
-        }
-
+        "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64",
+        "u128", "usize", "f32", "f64", "bool", "char", "str", "String",
+    }
 
     STYLES = {
         "keyword": QColor(86, 156, 214),
@@ -1571,19 +1576,19 @@ class SyntaxHighlighter(QSyntaxHighlighter):
     }
 
     def __init__(self, parent: QTextDocument) -> None:
-        """Initialize highlighter with Rust syntax rules.
+        """Инициализация подсветки синтаксиса с правилами Rust.
 
-        Args:
-            parent: Document to apply highlighting rules to
+        Аргументы:
+            parent: Документ для применения правил подсветки
         """
         super().__init__(parent)
         self._formats = self._create_text_formats()
 
     def _create_text_formats(self) -> dict[str, QTextCharFormat]:
-        """Create text formats for different syntax elements.
+        """Создание текстовых форматов для различных элементов синтаксиса.
 
-        Returns:
-            Mapping of syntax types to text formats
+        Возвращает:
+            Отображение типов синтаксиса на текстовые форматы
         """
         formats = {}
         for style, color in self.STYLES.items():
@@ -1593,10 +1598,10 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         return formats
 
     def highlightBlock(self, text: str) -> None:
-        """Apply syntax highlighting to a text block.
+        """Применение подсветки синтаксиса к текстовому блоку.
 
-        Args:
-            text: Block content to highlight
+        Аргументы:
+            text: Содержимое блока для подсветки
         """
         self._highlight_strings(text)
         self._highlight_comments(text)
@@ -1605,7 +1610,7 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         self.setCurrentBlockState(0)
 
     def _highlight_strings(self, text: str) -> None:
-        """Highlight string literals in double quotes."""
+        """Подсветка строковых литералов в двойных кавычках."""
         start = 0
         while start < len(text):
             if text[start] != '"':
@@ -1622,7 +1627,7 @@ class SyntaxHighlighter(QSyntaxHighlighter):
             start = end + 1
 
     def _highlight_comments(self, text: str) -> None:
-        """Highlight single-line comments."""
+        """Подсветка однострочных комментариев."""
         comment_start = text.find("//")
         if comment_start >= 0:
             self.setFormat(
