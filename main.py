@@ -1453,6 +1453,20 @@ class MainWindow(QMainWindow, IUserPrompts):
             f"{self._WINDOW_TITLE_BASE}{'*' if modified else ''}"
         )
 
+    def closeEvent(self, event) -> None:
+        """Обработка события закрытия окна."""
+        if self._view_model and self._view_model._model.modified:
+            response = self.ask_save_changes()
+            if response is None:
+                event.ignore()  # Отмена закрытия окна
+                return
+            elif response:
+                # Если пользователь выбрал "Да", вызываем "Сохранить как"
+                if not self._view_model.save_document_as():
+                    event.ignore()  # Если сохранение отменено, не закрываем окно
+                    return
+        event.accept()  # Закрываем окно
+
     # IUserPrompts implementation
     def ask_save_changes(self) -> Optional[bool]:
         """Запрос на сохранение несохраненных изменений.
