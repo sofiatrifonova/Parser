@@ -12,7 +12,7 @@
 - const int varB = 5;
 - constexpr int varC = 7;
 
-![diagram.jpeg](/home/sofia/парсер)
+![diagram.jpeg](https://github.com/sofiatrifonova/Parser/blob/main/diagram.jpg)
 ## Справка по текстовому редактору
 
 ### Пункты меню
