@@ -65,7 +65,7 @@ class Lexer:
         (r"constexpr\b", "CONSTEXPR"),
         (r"const\b", "CONST"),
         (r"int\b", "INT"),
-        (r" ", "SPACE"),
+        (r"\s+", "SPACE"),  # Объединяем повторяющиеся пробелы
         (r"=", "ASSIGN"),
         (r"\+", "PLUS"),
         (r"-", "MINUS"),
@@ -137,6 +137,16 @@ class Lexer:
                             f"Недопустимый пробел: {repr(char)}",
                         )
                     )
+                    # Добавляем недопустимые символы как токены с типом ERROR
+                    self.tokens.append(
+                        Token(
+                            "ERROR",
+                            char,
+                            line_num,
+                            column,
+                            column + 1,
+                        )
+                    )
                 elif char == "\n":
                     pass
                 else:
@@ -147,9 +157,18 @@ class Lexer:
                             f"Недопустимый символ: {repr(char)}",
                         )
                     )
+                    # Добавляем недопустимые символы как токены с типом ERROR
+                    self.tokens.append(
+                        Token(
+                            "ERROR",
+                            char,
+                            line_num,
+                            column,
+                            column + 1,
+                        )
+                    )
                 self.pos += 1
         return self.tokens, self.errors
-
 
 class ThemeManager:
     _COLOR_SPEC = {
@@ -345,19 +364,9 @@ class SyntaxHighlighter(QSyntaxHighlighter):
         keyword_format.setForeground(QColor(255, 165, 0))
         keyword_format.setFontWeight(QFont.Weight.Bold)
         keywords = [
-            "if",
-            "else",
-            "while",
-            "for",
-            "return",
-            "break",
-            "function",
-            "var",
-            "let",
+            "int",
             "const",
-            "true",
-            "false",
-            "null",
+            "constexpr",
         ]
         for word in keywords:
             pattern = QRegularExpression(
@@ -393,6 +402,26 @@ class MainWindow(QMainWindow):
     run_parser_action: QAction
     help_action: QAction
     about_action: QAction
+
+    def closeEvent(self, event):
+            if self._is_modified:
+                reply = QMessageBox.question(
+                    self,
+                    "Несохраненные изменения",
+                    "У вас есть несохраненные изменения. Хотите сохранить файл перед закрытием?",
+                    QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Save
+                )
+
+                if reply == QMessageBox.StandardButton.Save:
+                    if not self.save_document():
+                        event.ignore()
+                        return
+                elif reply == QMessageBox.StandardButton.Cancel:
+                    event.ignore()
+                    return
+
+            event.accept()
 
     def __init__(self):
         super().__init__()
