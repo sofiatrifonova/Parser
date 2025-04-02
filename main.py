@@ -1,127 +1,224 @@
-import re
 import os
+import re
 import sys
-from bisect import bisect_right
-from typing import Tuple, List, Optional, cast
-from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QTextEdit,
-    QTableWidget,
-    QTableWidgetItem,
-    QFileDialog,
-    QMessageBox,
-    QToolBar,
-    QMenuBar,
-    QHeaderView,
-)
-from PySide6.QtGui import (
-    QAction,
-    QIcon,
-    QSyntaxHighlighter,
-    QPalette,
-    QTextCharFormat,
-    QColor,
-    QFont,
-    QTextDocument,
-    QKeySequence,
-    QTextCursor,
+import bisect
+import locale
+from queue import PriorityQueue
+from typing import (
+    List,
+    Tuple,
+    Callable,
 )
 from PySide6.QtCore import (
+    Qt,
+    QRect,
+    QSize,
+    Signal,
+    QLocale,
+    QObject,
+    QFileSystemWatcher,
     QRegularExpression,
-    QRegularExpressionMatch,
-    QRegularExpressionMatchIterator,
-    QObject
+)
+from PySide6.QtGui import (
+    QFont,
+    QIcon,
+    QColor,
+    QAction,
+    QPainter,
+    QPalette,
+    QShortcut,
+    QKeySequence,
+    QTextCharFormat,
+    QSyntaxHighlighter,
+)
+from PySide6.QtWidgets import (
+    QMenu,
+    QWidget,
+    QMenuBar,
+    QToolBar,
+    QTextEdit,
+    QTabWidget,
+    QFileDialog,
+    QHeaderView,
+    QMainWindow,
+    QMessageBox,
+    QVBoxLayout,
+    QApplication,
+    QTableWidget,
+    QPlainTextEdit,
+    QTableWidgetItem,
 )
 
 
 class Token:
     def __init__(
         self,
-        token_type: str,
+        type: str,
         value: str,
         line: int,
-        start_column: int,
-        end_column: int,
+        column: int
     ):
-        self.token_type = token_type
+        self.type = type
         self.value = value
         self.line = line
-        self.start_column = start_column
-        self.end_column = end_column
+        self.column = column
+
+    def __repr__(self):
+        return f"Token({self.type}, {self.value}, {self.line}, {self.column})"
 
 
 class LexerError:
-    def __init__(self, line: int, column: int, message: str):
+    def __init__(
+        self,
+        line: int,
+        column: int,
+        message: str
+    ):
         self.line = line
         self.column = column
         self.message = message
 
+    def __repr__(self):
+        return f"LexerError({self.line}, {self.column}, {self.message})"
 
-class Lexer:
+
+class Branch:
+    def __init__(
+        self,
+        tokens: List[Token],
+        index: int,
+        current_state: str,
+        edit_count: int,
+        changes: List[tuple]
+    ):
+        self.tokens = tokens
+        self.index = index
+        self.current_state = current_state
+        self.edit_count = edit_count
+        self.changes = changes
+
+    def __lt__(self, other):
+        return self.edit_count < other.edit_count
+
+
+class AdvancedLexer:
+    MAX_EDIT_COUNT = 15
+
     TOKEN_REGEX = [
-        (r"constexpr\b", "CONSTEXPR"),
-        (r"const\b", "CONST"),
-        (r"int\b", "INT"),
-        (r"\s+", "SPACE"),  # Объединяем повторяющиеся пробелы
-        (r"=", "ASSIGN"),
-        (r"\+", "PLUS"),
-        (r"-", "MINUS"),
-        (r";", "SEMICOLON"),
-        (r"[a-zA-Z_][a-zA-Z0-9_]*", "IDENTIFIER"),
-        (r"\d+", "NUMBER"),
+        (r'const\b', 'CONST'),
+        (r'constexpr\b', 'CONSTEXPR'),
+        (r'int\b', 'INT'),
+        (r'=', 'EQUAL'),
+        (r'\+', 'PLUS'),
+        (r'-', 'MINUS'),
+        (r';', 'SEMICOLON'),
+        (r'[a-zA-Z][a-zA-Z0-9]*', 'VARIABLE'),
+        (r'\d+', 'VALUE'),
+        (r'[^\s]', 'INVALID'),
     ]
+
+    DEFAULT_TOKEN_VALUES = {
+        'CONST': 'const', 'CONSTEXPR': 'constexpr', 'INT': 'int',
+        'EQUAL': '=', 'VARIABLE': 'имя_переменной',
+        'PLUS': '+', 'MINUS': '-', 'SEMICOLON': ';',
+        'VALUE': 'число'
+    }
+
+    TRANSITIONS = {
+        'START': {'CONST': 'DATA_TYPE', 'CONSTEXPR': 'DATA_TYPE'},
+        'DATA_TYPE': {'INT': 'VARIABLE'},
+        'VARIABLE': {'VARIABLE': 'EQUAL'},
+        'EQUAL': {'EQUAL': 'VALUE'},
+        'VALUE': {
+            'VALUE': 'SEMICOLON',
+            'MINUS': 'WHOLENUMBER',
+            'PLUS': 'WHOLENUMBER'
+        },
+        'WHOLENUMBER': {'VALUE': 'SEMICOLON'},
+        'SEMICOLON': {'SEMICOLON': 'END'},
+        'END': {}
+    }
 
     def __init__(self, input_text: str):
         self.input_text = input_text
         self.newline_positions = [
-            i for i, c in enumerate(input_text) if c == "\n"
+            i for i, c in enumerate(input_text) if c == '\n'
         ]
-        self.tokens: List[Token] = []
-        self.errors: List[LexerError] = []
+        self.tokens = []
+        self.errors = []
         self.pos = 0
         self.length = len(input_text)
 
-    def get_line_column(self, line_num: int, pos: int) -> int:
+    def get_line_column(
+        self,
+        pos: int
+    ) -> Tuple[int, int]:
+        line_num = bisect.bisect_right(
+            self.newline_positions,
+            pos
+        ) + 1
         if line_num > 1:
-            last_nl_pos = self.newline_positions[line_num - 2]
-            column = pos - last_nl_pos
+            column = pos - self.newline_positions[line_num-2]
         else:
             column = pos + 1
-        return column
+        return line_num, column
+
+    def create_token(
+        self,
+        token_type: str,
+        reference_token: Token,
+        insert_after: bool = False
+    ) -> Token:
+        value = self.DEFAULT_TOKEN_VALUES.get(
+            token_type,
+            token_type
+        )
+        if reference_token:
+            if insert_after:
+                new_pos = reference_token.column + len(reference_token.value)
+                return Token(
+                    token_type,
+                    value,
+                    reference_token.line,
+                    new_pos
+                )
+            return Token(
+                token_type,
+                value,
+                reference_token.line,
+                reference_token.column
+            )
 
     def lex(self) -> Tuple[List[Token], List[LexerError]]:
         while self.pos < self.length:
-            line_num = bisect_right(self.newline_positions, self.pos) + 1
-            column = self.get_line_column(line_num, self.pos)
+            while (
+                self.pos < self.length
+                and self.input_text[self.pos].isspace()
+            ):
+                self.pos += 1
+            if self.pos >= self.length:
+                break
+
+            line, column = self.get_line_column(self.pos)
             matched = False
             for pattern, token_type in self.TOKEN_REGEX:
                 regex = re.compile(pattern)
                 match = regex.match(self.input_text, self.pos)
                 if match:
                     value = match.group(0)
-                    if token_type in ("CONST", "CONSTEXPR", "INT"):
+                    if token_type in ('CONST', 'CONSTEXPR', 'INT'):
                         next_pos = match.end()
                         if (
                             next_pos < self.length
                             and self.input_text[next_pos].isalnum()
                         ):
                             continue
-                    line_num = bisect_right(
-                        self.newline_positions, self.pos
-                    ) + 1
-                    start_column = self.get_line_column(line_num, self.pos)
-                    end_pos = match.end()
-                    end_column = self.get_line_column(line_num, end_pos - 1)
                     self.tokens.append(
                         Token(
                             token_type,
                             value,
-                            line_num,
-                            start_column,
-                            end_column,
+                            line,
+                            column
                         )
                     )
                     self.pos = match.end()
@@ -129,618 +226,1192 @@ class Lexer:
                     break
             if not matched:
                 char = self.input_text[self.pos]
-                if char in {"\t", "\r"}:
-                    self.errors.append(
-                        LexerError(
-                            line_num,
-                            column,
-                            f"Недопустимый пробел: {repr(char)}",
-                        )
+                self.errors.append(
+                    LexerError(
+                        line,
+                        column,
+                        f"Неожиданный символ: {repr(char)}"
                     )
-                    # Добавляем недопустимые символы как токены с типом ERROR
-                    self.tokens.append(
-                        Token(
-                            "ERROR",
-                            char,
-                            line_num,
-                            column,
-                            column + 1,
-                        )
-                    )
-                elif char == "\n":
-                    pass
-                else:
-                    self.errors.append(
-                        LexerError(
-                            line_num,
-                            column,
-                            f"Недопустимый символ: {repr(char)}",
-                        )
-                    )
-                    # Добавляем недопустимые символы как токены с типом ERROR
-                    self.tokens.append(
-                        Token(
-                            "ERROR",
-                            char,
-                            line_num,
-                            column,
-                            column + 1,
-                        )
-                    )
+                )
                 self.pos += 1
         return self.tokens, self.errors
 
-class ThemeManager:
-    _COLOR_SPEC = {
-        "background": (18, 18, 18),
-        "foreground": (240, 240, 240),
-        "base": (30, 30, 30),
-        "alternate_base": (45, 45, 45),
+    def validate_tokens(self) -> Tuple[List[Token], List[LexerError]]:
+        queue = PriorityQueue()
+        queue.put((
+            0,
+            Branch(
+                self.tokens.copy(), 0, 'START', 0, []
+            )
+        ))
+        best = None
 
-        "accent": (100, 149, 237),
-        "accent_light": (135, 206, 250),
-        "highlight": (70, 130, 180),
+        while not queue.empty():
+            _, branch = queue.get()
 
-        "button": (50, 50, 50),
-        "button_hover": (70, 70, 70),
-        "button_pressed": (90, 90, 90),
+            if best and best.edit_count <= self.MAX_EDIT_COUNT:
+                break
 
-        "scroll_handle": (90, 90, 90),
-        "border": (60, 60, 60),
+            if branch.index >= len(branch.tokens):
+                if branch.current_state in ('END', 'START'):
+                    if not best or branch.edit_count < best.edit_count:
+                        best = branch
+                else:
+                    self._process_transitions(
+                        queue,
+                        branch
+                    )
+            else:
+                current_token = branch.tokens[branch.index]
+                allowed = self.TRANSITIONS.get(
+                    branch.current_state,
+                    {}
+                ).keys()
 
-        "menu_background": (40, 40, 40),
-        "menu_foreground": (240, 240, 240),
-        "menu_hover": (70, 130, 180),
-        "menu_selected": (100, 149, 237),
+                if current_token.type in allowed:
+                    self._handle_valid_transition(
+                        queue,
+                        branch
+                    )
+                else:
+                    self._generate_repair_branches(
+                        queue,
+                        branch,
+                        current_token,
+                        allowed
+                    )
 
-        "error": (220, 50, 47),
-        "warning": (203, 203, 65),
-        "success": (80, 200, 120)
-    }
+        return self._finalize_validation(best)
 
-    _PALETTE = {k: QColor(*v) for k, v in _COLOR_SPEC.items()}
+    def _process_transitions(self, queue, branch):
+        current_state = branch.current_state
+        allowed = self.TRANSITIONS.get(
+            current_state,
+            {}
+        ).keys()
 
-    _PALETTE_MAP = [
-        (QPalette.ColorRole.Window, "background"),
-        (QPalette.ColorRole.WindowText, "foreground"),
-        (QPalette.ColorRole.Base, "base"),
-        (QPalette.ColorRole.AlternateBase, "alternate_base"),
-        (QPalette.ColorRole.ToolTipBase, "accent"),
-        (QPalette.ColorRole.ToolTipText, "foreground"),
-        (QPalette.ColorRole.Text, "foreground"),
-        (QPalette.ColorRole.Button, "button"),
-        (QPalette.ColorRole.ButtonText, "foreground"),
-        (QPalette.ColorRole.Highlight, "accent"),
-        (QPalette.ColorRole.HighlightedText, "base"),
-    ]
+        for insert_type in allowed:
+            line, column = 1, 1
+            if branch.tokens:
+                last_token = branch.tokens[-1]
+                line = last_token.line
+                column = last_token.column + len(last_token.value)
 
-    _BASE_STYLE = """
-        QMainWindow {{
-            background-color: {background};
-            color: {foreground};
-            font-family: 'Segoe UI', sans-serif;
-            padding: 6px;
-        }}
-        QTextEdit {{
-            background-color: {base};
-            color: {foreground};
-            border: 1px solid {border};
-            selection-background-color: {accent};
-            selection-color: {base};
-            font-family: 'Fira Code', 'Consolas', monospace;
-            margin: 8px 8px 0 8px;
-            padding: 12px;
-        }}
-        QTextEdit#editor {{
-            background-color: {base};
-            color: {foreground};
-            selection-background-color: {accent};
-            selection-color: {base};
-        }}
-        QTextEdit#editor:focus {{
-            border-color: {accent_light};
-            outline: none;
-        }}
-        QTableWidget {{
-            background-color: {alternate_base};
-            border-color: {accent_light};
-            color: {foreground};
-            font-family: 'Fira Code', 'Consolas', monospace;
-            gridline-color: {border};
-            margin: 8px 8px 0 8px;
-            outline: none;
-        }}
-        QHeaderView {{
-            background-color: {background};
-            color: {foreground};
-            font-family: 'Fira Code', 'Consolas', monospace;
-            outline: none;
-        }}
-    """
+            insert_token = Token(
+                insert_type,
+                self.DEFAULT_TOKEN_VALUES.get(
+                    insert_type,
+                    insert_type
+                ),
+                line,
+                column
+            )
+            new_tokens = branch.tokens.copy()
+            new_tokens.append(insert_token)
+            new_changes = branch.changes.copy()
+            new_changes.append(('insert', len(new_tokens)-1, insert_token))
+            next_state = self.TRANSITIONS[current_state][insert_type]
 
-    _COMPONENT_STYLES = {
-        "ToolBar": """
-            QToolBar {{
-                background-color: {base};
-                border-bottom: 1px solid {border};
-                spacing: 4px;
-                padding: 4px;
-            }}
-            QToolBar::separator {{
-                background: {border};
-                width: 1px;
-                margin: 0 4px;
-            }}
-        """,
+            if branch.edit_count + 1 <= self.MAX_EDIT_COUNT:
+                new_branch = Branch(
+                    tokens=new_tokens,
+                    index=len(new_tokens),
+                    current_state=next_state,
+                    edit_count=branch.edit_count + 1,
+                    changes=new_changes
+                )
+                queue.put((
+                    new_branch.edit_count,
+                    new_branch
+                ))
 
-        "ScrollBars": """
-            QScrollBar:vertical {{
-                background: {base};
-                width: 8px;
-                margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {scroll_handle};
-                min-height: 30px;
-            }}
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {{
-                background: none;
-            }}
-        """,
+    def _handle_valid_transition(self, queue, branch):
+        current_token = branch.tokens[branch.index]
+        next_state = self.TRANSITIONS[branch.current_state][current_token.type]
 
-        "MenuSystem": """
-            QMenuBar {{
-                background-color: {base};
-                color: {foreground};
-                padding: 4px 8px;
-                border-bottom: 1px solid {border};
-            }}
-            QMenu {{
-                background-color: {menu_background};
-                color: {menu_foreground};
-                border: 1px solid {border};
-                padding: 4px 0;
-            }}
-            QMenu::icon {{
-                margin-left: 8px;
-            }}
-            QMenu::item {{
-                padding: 4px 8px;
-                margin: 2px 4px;
-                min-width: 160px;
-            }}
-            QMenu::item:selected {{
-                background-color: {menu_hover};
-            }}
-            QMenu::item:pressed {{
-                background-color: {menu_selected};
-            }}
-        """,
+        new_edit_count = branch.edit_count if next_state != 'END' else 0
+        new_state = 'START' if next_state == 'END' else next_state
 
-        "Buttons": """
-            QToolButton {{
-                background-color: {button};
-                border: 1px solid {border};
-                padding: 4px 8px;
-                margin: 2px;
-            }}
-            QToolButton:hover {{
-                background-color: {button_hover};
-            }}
-            QToolButton:pressed {{
-                background-color: {button_pressed};
-            }}
-            QToolButton:disabled {{
-                color: {scroll_handle};
-                background-color: {alternate_base};
-            }}
-        """
-    }
+        new_branch = Branch(
+            tokens=branch.tokens,
+            index=branch.index + 1,
+            current_state=new_state,
+            edit_count=new_edit_count,
+            changes=branch.changes.copy()
+        )
+        queue.put((new_branch.edit_count, new_branch))
 
-    def apply_theme(self, window: QMainWindow) -> None:
-        palette = QPalette()
-        for role, color_key in self._PALETTE_MAP:
-            palette.setColor(role, self._PALETTE[color_key])
-        window.setPalette(palette)
-        window.setStyleSheet(self._build_stylesheet())
+    def _generate_repair_branches(
+        self,
+        queue,
+        branch,
+        current_token,
+        allowed
+    ):
+        self._generate_delete_branch(queue, branch, current_token)
+        self._generate_replace_branches(queue, branch, current_token, allowed)
+        self._generate_insert_branches(queue, branch, current_token, allowed)
 
-    def _build_stylesheet(self) -> str:
-        color_map = {k: v.name() for k, v in self._PALETTE.items()}
-        styles = [
-            self._BASE_STYLE.format(**color_map),
-            *[style.format(**color_map) for style in self._COMPONENT_STYLES.values()]
+    def _generate_delete_branch(self, queue, branch, current_token):
+        new_tokens = branch.tokens.copy()
+        del new_tokens[branch.index]
+        new_changes = branch.changes.copy()
+        new_changes.append((
+            'delete',
+            branch.index,
+            current_token
+        ))
+        if branch.edit_count + 1 <= self.MAX_EDIT_COUNT:
+            new_branch = Branch(
+                tokens=new_tokens,
+                index=branch.index,
+                current_state=branch.current_state,
+                edit_count=branch.edit_count + 1,
+                changes=new_changes
+            )
+            queue.put((
+                new_branch.edit_count,
+                new_branch
+            ))
+
+    def _generate_replace_branches(
+        self,
+        queue,
+        branch,
+        current_token,
+        allowed
+    ):
+        current_state = branch.current_state
+        for replace_type in allowed:
+            new_token = self.create_token(replace_type, current_token)
+            new_tokens = branch.tokens.copy()
+            new_tokens[branch.index] = new_token
+            new_changes = branch.changes.copy()
+            new_changes.append((
+                'replace',
+                branch.index,
+                current_token,
+                new_token
+            ))
+            next_state = self.TRANSITIONS[current_state][replace_type]
+            if branch.edit_count + 1 <= self.MAX_EDIT_COUNT:
+                new_branch = Branch(
+                    tokens=new_tokens,
+                    index=branch.index + 1,
+                    current_state=next_state,
+                    edit_count=branch.edit_count + 1,
+                    changes=new_changes
+                )
+                queue.put((
+                    new_branch.edit_count,
+                    new_branch
+                ))
+
+    def _generate_insert_branches(
+        self,
+        queue,
+        branch,
+        current_token,
+        allowed
+    ):
+        current_state = branch.current_state
+        for insert_type in allowed:
+            insert_token = self.create_token(
+                insert_type,
+                current_token,
+                False
+            )
+            new_tokens = branch.tokens.copy()
+            new_tokens.insert(branch.index, insert_token)
+            new_changes = branch.changes.copy()
+            new_changes.append(('insert', branch.index, insert_token))
+            next_state = self.TRANSITIONS[current_state][insert_type]
+            if branch.edit_count + 1 <= self.MAX_EDIT_COUNT:
+                new_branch = Branch(
+                    tokens=new_tokens,
+                    index=branch.index + 1,
+                    current_state=next_state,
+                    edit_count=branch.edit_count + 1,
+                    changes=new_changes
+                )
+                queue.put((new_branch.edit_count, new_branch))
+
+    def _finalize_validation(self, best):
+        if best:
+            self.tokens = best.tokens
+            errors = self._generate_errors_from_changes(best.changes)
+            return self.tokens, errors
+        return self.tokens, self.errors + [
+            LexerError(
+                0, 0, f"Превышен лимит исправлений ({self.MAX_EDIT_COUNT})"
+            )
         ]
-        return "\n".join(styles).replace("    ", "")
+
+    def _generate_errors_from_changes(
+        self,
+        changes: List[tuple]
+    ) -> List[LexerError]:
+        errors = []
+        for change in changes:
+            action = change[0]
+            if action == 'delete':
+                *_, token = change
+                errors.append(
+                    LexerError(
+                        token.line,
+                        token.column,
+                        f"Удаление недопустимого токена: '{token.value}'"
+                    )
+                )
+            elif action == 'replace':
+                *_, old_token, new_token = change
+                errors.append(
+                    LexerError(
+                        old_token.line,
+                        old_token.column,
+                        f"Замена '{old_token.value}' на '{new_token.value}'"
+                    )
+                )
+            elif action == 'insert':
+                *_, token = change
+                errors.append(
+                    LexerError(
+                        token.line,
+                        token.column,
+                        f"Вставка отсутствующего токена: '{token.value}'"
+                    )
+                )
+        return errors
+
+
+class Theme:
+    def __init__(self):
+        self.style_sheet = """
+        QPushButton {
+            padding: 6px 12px;
+        }
+        QTextEdit, QLineEdit {
+            padding: 4px;
+        }
+        QTableWidget::item {
+            padding: 4px;
+        }
+        QHeaderView::section {
+            padding: 6px;
+            margin: 0;
+        }
+        QGroupBox {
+            margin-top: 1ex;
+            padding-top: 10px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 4px;
+        }
+        """
+
+    def apply_theme(self, app):
+        app.setStyleSheet(self.style_sheet)
 
 
 class SyntaxHighlighter(QSyntaxHighlighter):
-    def __init__(self, parent: Optional[QObject] = None):
+    def __init__(self, parent):
         super().__init__(parent)
-        self.highlighting_rules: List[
-            Tuple[QRegularExpression, QTextCharFormat]
-        ] = []
-        keyword_format = QTextCharFormat()
-        keyword_format.setForeground(QColor(255, 165, 0))
-        keyword_format.setFontWeight(QFont.Weight.Bold)
-        keywords = [
-            "int",
-            "const",
-            "constexpr",
-        ]
+        self.rules = []
+        self._init_highlight_rules()
+
+    def _init_highlight_rules(self):
+        self._add_rule(
+            ["const", "constexpr"],
+            QColor(207, 106, 76),
+        )
+
+        self._add_rule(
+            ["int"],
+            QColor(103, 140, 177),
+        )
+        self._add_string_rule(QColor(120, 153, 34))
+        self._add_comment_rule(QColor(112, 128, 144))
+        self._add_number_rule(QColor(152, 118, 170))
+        self._add_function_rule(QColor(200, 80, 140))
+
+    def _add_rule(self, keywords, color, bold=False, italic=False):
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
+        fmt.setFontItalic(italic)
+
         for word in keywords:
             pattern = QRegularExpression(
                 r"\b" + QRegularExpression.escape(word) + r"\b"
             )
-            self.highlighting_rules.append((pattern, keyword_format))
+            if pattern.isValid():
+                self.rules.append((pattern, fmt))
 
-    def highlightBlock(self, text: str):
-        for pattern, fmt in self.highlighting_rules:
-            match_iterator: QRegularExpressionMatchIterator = (
-                pattern.globalMatch(text)
+    def _add_string_rule(self, color):
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        patterns = (
+            QRegularExpression(
+                r'"[^"\\]*(\\.[^"\\]*)*"'
+            ),
+            QRegularExpression(
+                r"'[^'\\]*(\\.[^'\\]*)*'"
+            ),
+            QRegularExpression(
+                r"`[^`\\]*(\\.[^`\\]*)*`"
             )
+        )
+        for pattern in patterns:
+            if pattern.isValid():
+                self.rules.append((pattern, fmt))
+
+    def _add_comment_rule(self, color):
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        fmt.setFontItalic(True)
+        patterns = (
+            QRegularExpression(
+                r"//[^\n]*"
+            ),
+            QRegularExpression(
+                r"/\*.*?\*/",
+                QRegularExpression.PatternOption.DotMatchesEverythingOption
+            )
+        )
+        for pattern in patterns:
+            if pattern.isValid():
+                self.rules.append((pattern, fmt))
+
+    def _add_number_rule(self, color):
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        pattern = QRegularExpression(
+            r"\b\d+(\.\d+)?([eE][+-]?\d+)?\b"
+        )
+        if pattern.isValid():
+            self.rules.append((pattern, fmt))
+
+    def _add_function_rule(self, color):
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        fmt.setFontItalic(True)
+        pattern = QRegularExpression(
+            r"\b\w+(?=\()"
+        )
+        if pattern.isValid():
+            self.rules.append((pattern, fmt))
+
+    def highlightBlock(self, text):
+        for pattern, fmt in self.rules:
+            match_iterator = pattern.globalMatch(text)
             while match_iterator.hasNext():
-                match: QRegularExpressionMatch = match_iterator.next()
+                match = match_iterator.next()
                 self.setFormat(
-                    match.capturedStart(), match.capturedLength(), fmt
+                    match.capturedStart(),
+                    match.capturedLength(),
+                    fmt
                 )
+        self.setCurrentBlockState(0)
+
+
+class LineNumberArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+        self.text_color = QColor(120, 120, 120)
+        self.setFont(QFont("Fira Code", 12))
+
+    def sizeHint(self):
+        return QSize(self.editor.line_number_area_width(), 0)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+
+        block = self.editor.firstVisibleBlock()
+        block_num = block.blockNumber()
+        top = self.editor.blockBoundingGeometry(block).translated(
+            self.editor.contentOffset()
+        ).top()
+        bottom = top + self.editor.blockBoundingRect(block).height()
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                painter.setPen(self.text_color)
+                painter.drawText(
+                    0,
+                    int(top),
+                    self.width() - 5,
+                    self.editor.fontMetrics().height(),
+                    Qt.AlignmentFlag.AlignRight,
+                    str(block_num + 1),
+                )
+            block = block.next()
+            top = bottom
+            bottom = top + self.editor.blockBoundingRect(block).height()
+            block_num += 1
+
+
+class TextEditor(QPlainTextEdit):
+    def __init__(self):
+        super().__init__()
+        self.line_number_area = LineNumberArea(self)
+        self.current_line_format = QTextCharFormat()
+        self.current_line_format.setBackground(QColor(255, 247, 213))
+
+        self.setup_connections()
+        self._update_line_number_width(0)
+        self.setFont(QFont("Fira Code", 12))
+        self.highlighter = SyntaxHighlighter(self.document())
+
+    def setup_connections(self):
+        self.blockCountChanged.connect(self._update_line_number_width)
+        self.updateRequest.connect(self._update_line_numbers)
+        self.cursorPositionChanged.connect(self._highlight_current_line)
+
+    def line_number_area_width(self):
+        digits = len(str(max(1, self.blockCount())))
+        return 20 + self.fontMetrics().horizontalAdvance("9") * digits
+
+    def _update_line_number_width(self, _):
+        self.setViewportMargins(
+            self.line_number_area_width(), 0, 0, 0
+        )
+
+    def _update_line_numbers(self, rect, dy):
+        if dy:
+            self.line_number_area.scroll(0, dy)
+        else:
+            self.line_number_area.update(
+                0, rect.y(), self.line_number_area.width(), rect.height()
+            )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self.line_number_area.setGeometry(
+            QRect(
+                cr.left(),
+                cr.top(),
+                self.line_number_area_width(),
+                cr.height()
+            )
+        )
+
+    def _highlight_current_line(self):
+        extra_selections = []
+        if not self.isReadOnly():
+            selection = QTextEdit.ExtraSelection()
+            selection.format = self.current_line_format  # type: ignore
+            selection.cursor = self.textCursor()  # type: ignore
+            selection.cursor.clearSelection()  # type: ignore
+            extra_selections.append(selection)
+        self.setExtraSelections(extra_selections)
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
+        if event.key() in (
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Tab,
+            Qt.Key.Key_Backspace,
+            Qt.Key.Key_Delete
+        ):
+            self._highlight_current_line()
+
+    def wheelEvent(self, event):
+        super().wheelEvent(event)
+        self._highlight_current_line()
+
+
+class DocumentModel(QObject):
+    modified = Signal(bool)
+    file_path_changed = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        self._file_path = None
+        self._is_modified = False
+
+    @property
+    def file_path(self):
+        return self._file_path
+
+    @file_path.setter
+    def file_path(self, value):
+        if not isinstance(
+            value,
+            (
+                str,
+                type(None)
+            )
+        ):
+            raise TypeError(
+                "Путь должен быть строкой или None"
+            )
+        old_value = self._file_path
+        self._file_path = value
+        self.file_path_changed.emit(str(old_value), str(value))
+
+    @property
+    def is_modified(self):
+        return self._is_modified
+
+    @is_modified.setter
+    def is_modified(self, value):
+        if not isinstance(
+            value,
+            bool
+        ):
+            raise TypeError(
+                "Флаг изменения должен быть логическим значением"
+            )
+        self._is_modified = value
+        self.modified.emit(value)
+
+
+class DocumentWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._is_connected = False
+        self._is_reloading = False
+        self._is_saving_internally = False
+        self.last_saved_mtime = None
+
+        self.model = DocumentModel()
+        self.main_layout = QVBoxLayout(self)
+
+        self.input_edit = TextEditor()
+        self.highlighter = SyntaxHighlighter(self.input_edit.document())
+        self.output_tabs = QTabWidget()
+
+        self.error_table = QTableWidget()
+        self.error_table.setColumnCount(3)
+        self.error_table.setHorizontalHeaderLabels(
+            [
+                "Строка",
+                "Позиция",
+                "Сообщение"
+            ]
+        )
+        self.error_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+
+        header = self.error_table.horizontalHeader()
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+        self.file_watcher = QFileSystemWatcher()
+        self._update_file_watcher()
+
+        self.token_table = QTableWidget()
+        self.token_table.setColumnCount(5)
+        self.token_table.setHorizontalHeaderLabels([
+            "Строка",
+            "Начальная позиция",
+            "Конечная позиция",
+            "Нетерминал",
+            "Терминал"
+        ])
+
+        self.token_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+
+        header = self.token_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+
+        self.output_tabs.addTab(self.token_table, "Вывод")
+        self.output_tabs.addTab(self.error_table, "Ошибки")
+        self.main_layout.addWidget(self.input_edit)
+        self.main_layout.addWidget(self.output_tabs)
+        self.input_edit.textChanged.connect(self._handle_text_changed)
+        self.model.file_path_changed.connect(self._update_file_watcher)
+
+    def save(self, path):
+        try:
+            if not path:
+                raise ValueError(
+                    "Не указан путь для сохранения"
+                )
+
+            self._is_saving_internally = True
+            if self._is_connected:
+                self.file_watcher.fileChanged.disconnect()
+                self._is_connected = False
+
+            with open(
+                path,
+                "w",
+                encoding="utf-8"
+            ) as f:
+                content = self.input_edit.toPlainText()
+                if not isinstance(content, str):
+                    raise TypeError(
+                        "Содержимое должно быть строкой"
+                    )
+                f.write(content)
+
+            self.model.is_modified = False
+            self.last_saved_mtime = os.path.getmtime(path)
+            self.file_watcher.addPath(path)
+            return True
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Ошибка сохранения: {str(e)}"
+            )
+            return False
+        finally:
+            if not self._is_connected:
+                self.file_watcher.fileChanged.connect(
+                    self._handle_file_changed
+                )
+                self._is_connected = True
+            self._is_saving_internally = False
+
+    def _update_file_watcher(
+        self,
+        old_path=None,
+        new_path=None
+    ):
+        if not hasattr(
+            self,
+            'file_watcher'
+        ):
+            return
+
+        for path in [old_path, new_path]:
+            if path and not isinstance(path, str):
+                raise TypeError(
+                    "Неверный тип пути"
+                )
+
+        if old_path and self.file_watcher.files():
+            self.file_watcher.removePath(
+                old_path
+            )
+        if new_path:
+            self.file_watcher.addPath(
+                new_path
+            )
+
+        if self._is_connected:
+            self.file_watcher.fileChanged.disconnect()
+            self._is_connected = False
+
+        self.file_watcher.fileChanged.connect(
+            self._handle_file_changed
+        )
+        self._is_connected = True
+
+    def _handle_file_changed(self, path):
+        if self._is_saving_internally or path != self.model.file_path:
+            return
+
+        try:
+            current_mtime = os.path.getmtime(path)
+        except FileNotFoundError:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Файл был удален"
+            )
+            return
+
+        if current_mtime == self.last_saved_mtime:
+            return
+
+        self._is_reloading = True
+        reply = QMessageBox.question(
+            self,
+            "Изменение файла",
+            f"Файл '{os.path.basename(path)}' "
+            "изменен извне. "
+            "Перезагрузить?",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self._reload_file()
+            self.last_saved_mtime = current_mtime
+
+        self._is_reloading = False
+
+    def _reload_file(self):
+        if (
+            not self.model.file_path
+            or not os.path.exists(
+                self.model.file_path
+            )
+        ):
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                "Файл не существует"
+            )
+            return
+
+        try:
+            with open(
+                self.model.file_path,
+                "r",
+                encoding="utf-8"
+            ) as f:
+                content = f.read()
+            self.input_edit.blockSignals(True)
+            self.input_edit.setPlainText(content)
+            self.input_edit.blockSignals(False)
+            self.model.is_modified = False
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Ошибка загрузки: {str(e)}"
+            )
+
+    def _handle_text_changed(self):
+        if not self.model.is_modified:
+            self.model.is_modified = True
+
+
+class ToolbarManager:
+    def __init__(
+        self,
+        parent: QMainWindow
+    ) -> None:
+        self.parent = parent
+        self.toolbar = QToolBar("Основная панель")
+        parent.addToolBar(self.toolbar)
+
+    def add_action(
+        self,
+        icon_name: str,
+        text: str,
+        callback: Callable
+    ) -> QAction:
+        action = QAction(
+            QIcon.fromTheme(
+                icon_name
+            ),
+            text,
+            self.parent
+        )
+        action.triggered.connect(callback)
+        self.toolbar.addAction(action)
+        return action
+
+
+class MenuManager:
+    def __init__(
+        self,
+        parent: "MainWindow"
+    ) -> None:
+        self.parent = parent
+        self.menu_bar = QMenuBar()
+        parent.setMenuBar(self.menu_bar)
+        self._setup_menus()
+
+    def _setup_menus(self) -> None:
+        self._create_file_menu()
+        self._create_edit_menu()
+        self._create_run_menu()
+        self._create_help_menu()
+
+    def _create_file_menu(self) -> None:
+        menu = self.menu_bar.addMenu(
+            "Файл"
+        )
+        actions = [
+            (
+                "Создать",
+                "document-new",
+                self.parent.new_document
+            ),
+            (
+                "Открыть",
+                "document-open",
+                self.parent.open_document
+            ),
+            (
+                "Сохранить",
+                "document-save",
+                self.parent.save_document
+            ),
+            (
+                "Сохранить как",
+                "document-save-as",
+                self.parent.save_document_as
+            ),
+            (
+                "Выход",
+                "application-exit",
+                self.parent.close
+            ),
+        ]
+        self._add_menu_actions(
+            menu,
+            actions
+        )
+
+    def _create_edit_menu(self) -> None:
+        menu = self.menu_bar.addMenu(
+            "Правка"
+        )
+        actions = [
+            (
+                "Увеличить шрифт",
+                "zoom-in",
+                self.parent.increase_font_size
+            ),
+            (
+                "Уменьшить шрифт",
+                "zoom-out",
+                self.parent.decrease_font_size
+            ),
+            (
+                "Отменить",
+                "edit-undo",
+                self.parent.undo
+            ),
+            (
+                "Повторить",
+                "edit-redo",
+                self.parent.redo
+            ),
+            (
+                "Вырезать",
+                "edit-cut",
+                self.parent.cut
+            ),
+            (
+                "Копировать",
+                "edit-copy",
+                self.parent.copy
+            ),
+            (
+                "Вставить",
+                "edit-paste",
+                self.parent.paste
+            ),
+            (
+                "Удалить",
+                "edit-delete",
+                self.parent.delete
+            ),
+            (
+                "Выделить все",
+                "edit-select-all",
+                self.parent.select_all
+            ),
+        ]
+        self._add_menu_actions(
+            menu,
+            actions
+        )
+
+    def _create_run_menu(self) -> None:
+        menu = self.menu_bar.addMenu(
+            "Выполнение"
+        )
+        action = QAction(
+            "Запустить парсер",
+            self.parent
+        )
+        action.triggered.connect(
+            self.parent.run_parser
+        )
+        menu.addAction(
+            action
+        )
+
+    def _create_help_menu(self) -> None:
+        menu = self.menu_bar.addMenu(
+            "Справка"
+        )
+        actions = [
+            (
+                "Помощь",
+                "help-contents",
+                self.parent.show_help
+            ),
+            (
+                "О программе",
+                "help-about",
+                self.parent.show_about
+            ),
+        ]
+        self._add_menu_actions(
+            menu,
+            actions
+        )
+
+    def _add_menu_actions(self, menu: QMenu, actions: list) -> None:
+        for text, icon_name, callback in actions:
+            action = QAction(
+                QIcon.fromTheme(
+                    icon_name
+                ),
+                text,
+                self.parent
+            )
+            action.triggered.connect(callback)
+            menu.addAction(action)
 
 
 class MainWindow(QMainWindow):
-    new_action: QAction
-    open_action: QAction
-    save_action: QAction
-    save_as_action: QAction
-    exit_action: QAction
-    undo_action: QAction
-    redo_action: QAction
-    cut_action: QAction
-    copy_action: QAction
-    paste_action: QAction
-    delete_action: QAction
-    select_all_action: QAction
-    run_parser_action: QAction
-    help_action: QAction
-    about_action: QAction
-
-    def closeEvent(self, event):
-            if self._is_modified:
-                reply = QMessageBox.question(
-                    self,
-                    "Несохраненные изменения",
-                    "У вас есть несохраненные изменения. Хотите сохранить файл перед закрытием?",
-                    QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.Save
-                )
-
-                if reply == QMessageBox.StandardButton.Save:
-                    if not self.save_document():
-                        event.ignore()
-                        return
-                elif reply == QMessageBox.StandardButton.Cancel:
-                    event.ignore()
-                    return
-
-            event.accept()
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Компилятор")
         self.setGeometry(100, 100, 800, 600)
-        self._file_path: Optional[str] = None
-        self._is_modified = False
-        self._init_ui()
-        self._theme_manager = ThemeManager()
-        self._theme_manager.apply_theme(self)
-        self._create_actions()
-        self._setup_toolbar()
+        self.theme = Theme()
+        self.theme.apply_theme(QApplication.instance())
+        self.doc_widget = DocumentWidget()
+        self.setCentralWidget(self.doc_widget)
         self.menu_manager = MenuManager(self)
-
-    def _init_ui(self):
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-
-        self.input_edit = QTextEdit()
-        self.input_edit.setObjectName("editor")
-        self.highlighter = SyntaxHighlighter(
-            cast(QTextDocument, self.input_edit.document())
-        )
-
-        self.table_widget = QTableWidget()
-        self.table_widget.setColumnCount(5)
-        self.table_widget.setHorizontalHeaderLabels(
-            [
-                "Тип",
-                "Значение",
-                "Строка",
-                "Позиция (нач)",
-                "Позиция (кон)",
-            ]
-        )
-        self.table_widget.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
-
-        layout.addWidget(self.input_edit)
-        layout.addWidget(self.table_widget)
-
-        self.input_edit.textChanged.connect(self._handle_text_changed)
-
-    def _create_actions(self):
-        self.new_action = QAction("Создать", self)
-        self.new_action.setShortcut(QKeySequence.StandardKey.New)
-        self.new_action.setIcon(QIcon.fromTheme("document-new"))
-        self.new_action.triggered.connect(self.new_document)
-
-        self.open_action = QAction("Открыть", self)
-        self.open_action.setShortcut(QKeySequence.StandardKey.Open)
-        self.open_action.setIcon(QIcon.fromTheme("document-open"))
-        self.open_action.triggered.connect(self.open_document)
-
-        self.save_action = QAction("Сохранить", self)
-        self.save_action.setShortcut(QKeySequence.StandardKey.Save)
-        self.save_action.setIcon(QIcon.fromTheme("document-save"))
-        self.save_action.triggered.connect(self.save_document)
-
-        self.save_as_action = QAction("Сохранить как", self)
-        self.save_as_action.triggered.connect(self.save_document_as)
-        self.save_as_action.setIcon(QIcon.fromTheme("document-save-as"))
-
-        self.exit_action = QAction("Выход", self)
-        self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        self.exit_action.setIcon(QIcon.fromTheme("application-exit"))
-        self.exit_action.triggered.connect(self.close)
-
-        self.undo_action = QAction("Отменить", self)
-        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        self.undo_action.setIcon(QIcon.fromTheme("edit-undo"))
-        self.undo_action.triggered.connect(self.undo)
-
-        self.redo_action = QAction("Повторить", self)
-        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        self.redo_action.setIcon(QIcon.fromTheme("edit-redo"))
-        self.redo_action.triggered.connect(self.redo)
-
-        self.cut_action = QAction("Вырезать", self)
-        self.cut_action.setShortcut(QKeySequence.StandardKey.Cut)
-        self.cut_action.setIcon(QIcon.fromTheme("edit-cut"))
-        self.cut_action.triggered.connect(self.cut)
-
-        self.copy_action = QAction("Копировать", self)
-        self.copy_action.setShortcut(QKeySequence.StandardKey.Copy)
-        self.copy_action.setIcon(QIcon.fromTheme("edit-copy"))
-        self.copy_action.triggered.connect(self.copy)
-
-        self.paste_action = QAction("Вставить", self)
-        self.paste_action.setShortcut(QKeySequence.StandardKey.Paste)
-        self.paste_action.setIcon(QIcon.fromTheme("edit-paste"))
-        self.paste_action.triggered.connect(self.paste)
-
-        self.delete_action = QAction("Удалить", self)
-        self.delete_action.setShortcut(QKeySequence.StandardKey.Delete)
-        self.delete_action.setIcon(QIcon.fromTheme("edit-delete"))
-        self.delete_action.triggered.connect(self.delete)
-
-        self.select_all_action = QAction("Выделить все", self)
-        self.select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
-        self.select_all_action.setIcon(QIcon.fromTheme("edit-select-all"))
-        self.select_all_action.triggered.connect(self.select_all)
-
-        self.run_parser_action = QAction("Запустить анализатор", self)
-        self.run_parser_action.setShortcut(QKeySequence("F5"))
-        self.run_parser_action.setIcon(QIcon.fromTheme("system-run"))
-        self.run_parser_action.triggered.connect(self.run_parser)
-
-        self.help_action = QAction("Справка", self)
-        self.help_action.setShortcut(QKeySequence.StandardKey.HelpContents)
-        self.help_action.setIcon(QIcon.fromTheme("help-contents"))
-        self.help_action.triggered.connect(self.show_help)
-
-        self.about_action = QAction("О программе", self)
-        self.about_action.triggered.connect(self.show_about)
-        self.about_action.setIcon(QIcon.fromTheme("help-about"))
+        self.toolbar_manager = ToolbarManager(self)
+        self._setup_toolbar()
+        self._setup_shortcuts()
+        self._setup_font_size()
 
     def _setup_toolbar(self):
-        self.toolbar_manager = ToolbarManager(self)
-        self.toolbar_manager.add_action(self.new_action)
-        self.toolbar_manager.add_action(self.open_action)
-        self.toolbar_manager.add_action(self.save_action)
-        self.toolbar_manager.add_action(self.undo_action)
-        self.toolbar_manager.add_action(self.redo_action)
-        self.toolbar_manager.add_action(self.cut_action)
-        self.toolbar_manager.add_action(self.copy_action)
-        self.toolbar_manager.add_action(self.paste_action)
-        self.toolbar_manager.add_action(self.run_parser_action)
-        self.toolbar_manager.add_action(self.help_action)
+        actions = [
+            ("document-new", "Новый", self.new_document),
+            ("document-open", "Открыть", self.open_document),
+            ("document-save", "Сохранить", self.save_document),
+            ("edit-undo", "Отменить", self.undo),
+            ("edit-redo", "Вернуть", self.redo),
+            ("edit-cut", "Вырезать", self.cut),
+            ("edit-copy", "Копировать", self.copy),
+            ("edit-paste", "Вставить", self.paste),
+            ("system-run", "Запуск", self.run_parser),
+            ("help-contents", "Справка", self.show_help),
+        ]
+        for icon, text, callback in actions:
+            self.toolbar_manager.add_action(
+                icon,
+                text,
+                callback
+            )
 
-    def _handle_text_changed(self):
-        if not self._is_modified:
-            self._is_modified = True
-            self._update_title()
+    def _setup_shortcuts(self):
+        shortcuts = {
+            "Ctrl+N": self.new_document,
+            "Ctrl+O": self.open_document,
+            "Ctrl+S": self.save_document,
+            "Ctrl+Shift+S": self.save_document_as,
+            "Ctrl+Z": self.undo,
+            "Ctrl+Y": self.redo,
+            "Ctrl+F": self.run_parser,
+            "Ctrl+=": self.increase_font_size,
+            "Ctrl+-": self.decrease_font_size,
+        }
+        for seq, handler in shortcuts.items():
+            QShortcut(
+                QKeySequence(seq),
+                self
+            ).activated.connect(handler)
 
-    def _update_title(self):
-        base_name = (
-            os.path.basename(
-                self._file_path) if self._file_path else "Новый файл"
-        )
-        self.setWindowTitle(
-            f"{base_name}{'*' if self._is_modified else ''} - Компилятор"
-        )
+    def _setup_font_size(self):
+        self.font_size = 12
+        self.update_font_size()
+
+    def update_font_size(self):
+        font = QFont()
+        font.setPointSize(self.font_size)
+        self.doc_widget.input_edit.setFont(font)
+        self.doc_widget.input_edit.line_number_area.setFont(font)
+
+    def increase_font_size(self):
+        self.font_size += 1
+        self.update_font_size()
+
+    def decrease_font_size(self):
+        if self.font_size > 1:
+            self.font_size -= 1
+            self.update_font_size()
 
     def new_document(self):
-        self.input_edit.clear()
-        self._file_path = None
-        self._is_modified = False
-        self._update_title()
+        self.doc_widget.model.file_path = None
+        self.doc_widget.input_edit.clear()
+        self.doc_widget.model.is_modified = False
 
     def open_document(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Открыть файл", "", "Text Files (*.txt);;All Files (*)"
+            self,
+            "Открыть файл",
+            "",
+            "Текстовые файлы (*.txt);;Все файлы (*)"
         )
         if path:
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(
+                    path,
+                    "r",
+                    encoding="utf-8"
+                ) as f:
                     content = f.read()
-                self.input_edit.setPlainText(content)
-                self._file_path = path
-                self._is_modified = False
-                self._update_title()
+                self.doc_widget.input_edit.setPlainText(content)
+                self.doc_widget.model.file_path = path
+                self.doc_widget.model.is_modified = False
             except Exception as e:
                 QMessageBox.critical(
-                    self, "Ошибка", f"Ошибка открытия файла:\n{str(e)}"
+                    self,
+                    "Ошибка",
+                    f"Ошибка создания файла: {str(e)}"
                 )
 
-    def save_document(self) -> bool:
-        if self._file_path:
-            return self._save_to_file(self._file_path)
+    def save_document(self):
+        if self.doc_widget.model.file_path:
+            if self.doc_widget.save(self.doc_widget.model.file_path):
+                return True
         return self.save_document_as()
 
-    def save_document_as(self) -> bool:
+    def save_document_as(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить как", "", "Text Files (*.txt);;All Files (*)"
+            self,
+            "Сохранить как",
+            "",
+            "Текстовые файлы (*.txt);;Все файлы (*)"
         )
-        if path:
-            if self._save_to_file(path):
-                self._file_path = path
-                self._is_modified = False
-                self._update_title()
-                return True
+        if path and self.doc_widget.save(path):
+            self.doc_widget.model.file_path = path
+            return True
         return False
 
-    def _save_to_file(self, path: str) -> bool:
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(self.input_edit.toPlainText())
-            return True
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Ошибка", f"Ошибка сохранения файла:\n{str(e)}"
-            )
-            return False
+    def insert_text(self, text):
+        self.doc_widget.input_edit.insertPlainText(
+            f"{text}\n"
+        )
 
     def run_parser(self):
-        input_text = self.input_edit.toPlainText()
-        lexer = Lexer(input_text)
-        tokens, errors = lexer.lex()
+        input_text = self.doc_widget.input_edit.toPlainText()
+        lexer = AdvancedLexer(input_text)
+        _, lexer_errors = lexer.lex()
+        valid_tokens, validation_errors = lexer.validate_tokens()
+        all_errors = lexer_errors + validation_errors
 
-        self.table_widget.setRowCount(len(tokens))
-        for row, token in enumerate(tokens):
-            self.table_widget.setItem(
-                row, 0, QTableWidgetItem(token.token_type))
-            self.table_widget.setItem(row, 1, QTableWidgetItem(token.value))
-            self.table_widget.setItem(
-                row, 2, QTableWidgetItem(str(token.line)))
-            self.table_widget.setItem(
-                row, 3, QTableWidgetItem(str(token.start_column)))
-            self.table_widget.setItem(
-                row, 4, QTableWidgetItem(str(token.end_column)))
+        self.doc_widget.token_table.setRowCount(0)
+        self.doc_widget.token_table.setRowCount(len(valid_tokens))
 
-        if errors:
-            error_messages = "\n".join(
-                f"[Строка {e.line}, Позиция {e.column}] {e.message}"
-                for e in errors
+        for row, token in enumerate(valid_tokens):
+            line = token.line
+            start = token.column
+            end = start + len(token.value) - 1
+
+            self.doc_widget.token_table.setItem(
+                row, 0, QTableWidgetItem(str(line)))
+            self.doc_widget.token_table.setItem(
+                row, 1, QTableWidgetItem(str(start)))
+            self.doc_widget.token_table.setItem(
+                row, 2, QTableWidgetItem(str(end)))
+            self.doc_widget.token_table.setItem(
+                row, 3, QTableWidgetItem(token.type))
+            self.doc_widget.token_table.setItem(
+                row, 4, QTableWidgetItem(token.value))
+
+        self.doc_widget.error_table.setRowCount(0)
+
+        for row, error in enumerate(all_errors):
+            self.doc_widget.error_table.insertRow(row)
+            self.doc_widget.error_table.setItem(
+                row,
+                0,
+                QTableWidgetItem(
+                    str(error.line)
+                )
             )
-            QMessageBox.warning(self, "Ошибки", error_messages)
+            self.doc_widget.error_table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    str(error.column)
+                )
+            )
+            self.doc_widget.error_table.setItem(
+                row,
+                2,
+                QTableWidgetItem(
+                    error.message
+                )
+            )
 
     def undo(self):
-        self.input_edit.undo()
+        self.doc_widget.input_edit.undo()
 
     def redo(self):
-        self.input_edit.redo()
+        self.doc_widget.input_edit.redo()
 
     def cut(self):
-        self.input_edit.cut()
+        self.doc_widget.input_edit.cut()
 
     def copy(self):
-        self.input_edit.copy()
+        self.doc_widget.input_edit.copy()
 
     def paste(self):
-        self.input_edit.paste()
+        self.doc_widget.input_edit.paste()
 
     def delete(self):
-        cursor: QTextCursor = self.input_edit.textCursor()
-        cursor.removeSelectedText()
+        self.doc_widget.input_edit.textCursor().removeSelectedText()
 
     def select_all(self):
-        self.input_edit.selectAll()
+        self.doc_widget.input_edit.selectAll()
 
     def show_help(self):
         QMessageBox.information(
             self,
             "Справка",
-            "Редактор для анализа объявления констант в C/C++\n\n"
-            "Используйте меню 'Пуск' для запуска лексического анализатора\n"
-            "Поддерживаются ключевые слова: const, constexpr, int",
-            QMessageBox.StandardButton.Ok,
+            "Документация приложения",
+            QMessageBox.StandardButton.Ok
         )
 
     def show_about(self):
         QMessageBox.about(
             self,
             "О программе",
-            "Текстовый редактор для анализа объявления констант\n"
-            "Автор: Студентка 3 курса группы АВТ-214, Трифонова София\n"
-            "Преподаватель: Антоньянц Е.Н.\n"
-            "Дисциплина: Теория формальных языков и компиляторов",
+            "Версия 0.1"
         )
 
-
-class ToolbarManager:
-    def __init__(self, parent: QMainWindow):
-        self.parent = parent
-        self.toolbar = QToolBar("Основная панель")
-        parent.addToolBar(self.toolbar)
-
-    def add_action(self, action: QAction):
-        self.toolbar.addAction(action)
-
-
-class MenuManager:
-    def __init__(self, parent: QMainWindow):
-        self.parent = parent
-        self.menu_bar = QMenuBar()
-        parent.setMenuBar(self.menu_bar)
-        self._setup_menus()
-
-    def _setup_menus(self):
-        self._create_file_menu()
-        self._create_edit_menu()
-        self._create_run_menu()
-        self._create_help_menu()
-
-    def _create_file_menu(self):
-        menu = self.menu_bar.addMenu("Файл")
-        menu.addAction(self.parent.new_action)
-        menu.addAction(self.parent.open_action)
-        menu.addAction(self.parent.save_action)
-        menu.addAction(self.parent.save_as_action)
-        menu.addSeparator()
-        menu.addAction(self.parent.exit_action)
-
-    def _create_edit_menu(self):
-        menu = self.menu_bar.addMenu("Правка")
-        menu.addAction(self.parent.undo_action)
-        menu.addAction(self.parent.redo_action)
-        menu.addSeparator()
-        menu.addAction(self.parent.cut_action)
-        menu.addAction(self.parent.copy_action)
-        menu.addAction(self.parent.paste_action)
-        menu.addAction(self.parent.delete_action)
-        menu.addSeparator()
-        menu.addAction(self.parent.select_all_action)
-
-    def _create_run_menu(self):
-        menu = self.menu_bar.addMenu("Пуск")
-        menu.addAction(self.parent.run_parser_action)
-
-    def _create_help_menu(self):
-        menu = self.menu_bar.addMenu("Справка")
-        menu.addAction(self.parent.help_action)
-        menu.addAction(self.parent.about_action)
+    def closeEvent(self, event):
+        if self.doc_widget.model.is_modified:
+            name = os.path.basename(
+                self.doc_widget.model.file_path
+            ) if self.doc_widget.model.file_path else "Без имени"
+            reply = QMessageBox.question(
+                self,
+                "Несохранённые изменения",
+                f"Документ '{name}' имеет "
+                "несохранённые изменения. "
+                "Сохранить?",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Cancel
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                if not self.save_document():
+                    event.ignore()
+                    return
+            elif reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+        event.accept()
 
 
 if __name__ == "__main__":
+    locale.setlocale(locale.LC_ALL, "ru_RU.UTF-8")
+    QLocale.setDefault(
+        QLocale(
+            QLocale.Language.Russian,
+            QLocale.Country.Russia
+        )
+    )
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
