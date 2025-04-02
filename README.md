@@ -13,6 +13,9 @@
 - constexpr int varC = 7;
 
 ![diagram.jpeg](https://github.com/sofiatrifonova/Parser/blob/main/diagram.jpg)
+Рисунок 1 - Лексический сканер
+
+![graph.jpeg](graph.jpg)
 ## Справка по текстовому редактору
 
 ### Пункты меню
