@@ -89,7 +89,7 @@ Vt = {
 
 Согласно классификации Хомского, грамматика G[‹START›] является автоматной.
 Рисунок 2 - Схема работы процедур
-![sostoyania.jpeg](sostoyanie.jpg)
+![sostoyania.jpeg](sostoyania.jpg)
 
 Рисунок 2 - Граф конечного автомата
 ![graph.jpeg](graph.jpg)
