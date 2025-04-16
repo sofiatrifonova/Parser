@@ -52,8 +52,48 @@ Banana;
 тип - IDENTIFIER; значение – Banana ; строка - 3; начальная позиция – 11; конечная позиция -  16.
 тип - SEMICOLON; значение – ;  ; строка - 3; начальная позиция – 17; конечная позиция - 17.
 
+Разработанная грамматика:
+G[Z]
+P:
+<START>                 -> <QUALIFIER> <SPACE_AFTER_QUALIFIER>
+<QUALIFIER>             -> 'const'
+<QUALIFIER>             -> 'constexpr'
+<SPACE_AFTER_QUALIFIER> -> ' ' <DATA_TYPE>
+<DATA_TYPE>             -> 'int' <SPACE_AFTER_TYPE>
+<SPACE_AFTER_TYPE>      -> ' ' <VARIABLE>
+<VARIABLE>              -> first_char <VARIABLEREM>
+<VARIABLEREM>           -> сhar <VARIABLEREM>
+<VARIABLEREM>           -> '=' <CONST_VALUE>
+<CONST_VALUE>           -> '+' <DIGIT>
+<CONST_VALUE>           -> '-' <DIGIT>
+<CONST_VALUE>           -> number <DIGITREM>
+<DIGIT>                 -> number <DIGITREM>
+<DIGITREM>              -> number <DIGITREM>
+<DIGITREM>              -> ';' <END>
+<END>                   -> ε
+
+number                  -> '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+first_char              -> 'a' | ... | 'z' | 'A' | ... | 'Z' | '_'
+сhar                    -> 'a' | ... | 'z' | 'A' | ... | 'Z' | '_' | '0' | ... | '9'
+
+Vn = {
+    <START>, <QUALIFIER>, <SPACE_AFTER_QUALIFIER>, <DATA_TYPE>,
+    <SPACE_AFTER_TYPE>, <VARIABLE>, <VARIABLEREM>, <CONST_VALUE>,
+    <DIGIT>, <DIGITREM>, <END>
+}
+
+Vt = {
+    'const', 'constexpr', 'int', ' ', '=', '+', '-', ';', '0' | ... | '9',
+    'a' | ... | 'z' | 'A' | ... | 'Z', '_', number, first_char, сhar
+}
+
+Согласно классификации Хомского, грамматика G[‹START›] является автоматной.
+Рисунок 2 - Схема работы процедур
+![sostoyania.jpeg](sostoyanie.jpg)
+
 Рисунок 2 - Граф конечного автомата
 ![graph.jpeg](graph.jpg)
+
 ## Справка по текстовому редактору
 
 ### Пункты меню
